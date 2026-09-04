@@ -14,7 +14,15 @@
 #   - libass + freetype/fontconfig/fribidi/harfbuzz  subtitle burn-in
 #   - libdav1d                 fast AV1 software decode
 #   - openssl                  TLS for IPTV https inputs
+#   - libzvbi                  DVB teletext subtitle decode (IPTV)
+#   - OpenCL filters           tonemap_opencl etc. — dormant on the Pi
+#                              (no ICD), ready for Intel/AMD hosts
 #   - native aac encoder, all native decoders (ac3/eac3/dts/truehd/...)
+#
+# Deliberately NOT included: libbluray (Archiverr never opens BDMV
+# structures), libvpx/libopus/libvorbis/libtheora (only their encoders
+# would add anything — Archiverr encodes h264/hevc/aac/eac3 only; the
+# native decoders already cover playback of those formats).
 #
 # Like jellyfin-ffmpeg, the binaries link their third-party libs
 # dynamically, but with RPATH=$ORIGIN/lib: every non-glibc dependency
@@ -52,6 +60,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # TLS + compression (libzstd-dev: OpenSSL 3.5's static libs
     # reference -lzstd, so its .a must be present for the static link)
     libssl-dev zlib1g-dev libzstd-dev \
+    # DVB teletext subtitle decoding
+    libzvbi-dev \
+    # OpenCL filter support (ICD loader only; drivers come from the host)
+    ocl-icd-opencl-dev opencl-c-headers \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -85,6 +97,8 @@ RUN ./configure \
         --enable-libfontconfig \
         --enable-libfribidi \
         --enable-libharfbuzz \
+        --enable-libzvbi \
+        --enable-opencl \
     && make -j"$(nproc)" \
     && make install
 
@@ -115,6 +129,8 @@ RUN set -e; \
     ls -la /tree/lib; \
     /tree/ffmpeg -hide_banner -decoders | grep -q hevc_v4l2m2m; \
     /tree/ffmpeg -hide_banner -encoders | grep -q h264_v4l2m2m; \
+    /tree/ffmpeg -hide_banner -decoders | grep -q libzvbi_teletext; \
+    /tree/ffmpeg -hide_banner -filters | grep -q tonemap_opencl; \
     cp /build/COPYING.GPLv3 /build/COPYING.GPLv2 /build/LICENSE.md /tree/LICENSES/; \
     for so in /tree/lib/*.so*; do \
         pkg=$(dpkg -S "$(basename "$so")" 2>/dev/null | head -1 | cut -d: -f1) || continue; \

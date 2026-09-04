@@ -28,7 +28,14 @@ exactly the features Archiverr uses:
 | libass + freetype/fontconfig/fribidi/harfbuzz | subtitle burn-in |
 | libdav1d | fast AV1 software decode |
 | openssl (`--enable-version3`) | TLS for IPTV https inputs |
+| libzvbi | DVB teletext subtitle decode (IPTV streams) |
+| OpenCL (`--enable-opencl`) | GPU filters (e.g. `tonemap_opencl`) — dormant on the Pi (no ICD driver), available on Intel/AMD hosts that expose one |
 | native aac/ac3/dts/... | audio (built into FFmpeg) |
+
+Deliberately excluded: libbluray (Archiverr never reads BDMV disc
+structures) and libvpx/libopus/libvorbis/libtheora (Archiverr encodes
+only h264/hevc/aac/eac3; FFmpeg's native decoders already cover
+playback of VP9/Opus/Vorbis/Theora media).
 
 The binaries are dynamically linked with `RPATH=$ORIGIN/lib` (old-style
 `DT_RPATH`, so it covers transitive deps); every non-glibc `.so` is
