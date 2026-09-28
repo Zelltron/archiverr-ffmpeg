@@ -98,9 +98,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libdrm-dev libudev-dev libva-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Intel oneVPL (QSV) is x86-only; skip the package on other arches.
+# x86-only build deps: Intel oneVPL (QSV), and nasm for FFmpeg's (and
+# dav1d's) x86 assembly — configure refuses to run on amd64 without it.
 RUN set -e; if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-      apt-get update && apt-get install -y --no-install-recommends libvpl-dev \
+      apt-get update && apt-get install -y --no-install-recommends libvpl-dev nasm \
       && rm -rf /var/lib/apt/lists/*; fi
 
 # NVIDIA codec headers (MIT): enables nvdec/nvenc/cuvid at build time.

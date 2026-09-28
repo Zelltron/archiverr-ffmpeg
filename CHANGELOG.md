@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **amd64 build fix.** The first native amd64 CI run
+  (https://github.com/Zelltron/archiverr-ffmpeg/actions/runs/36493019155)
+  showed v2.0.0 cannot build on x86: `configure` stops with `nasm/yasm not
+  found or too old`. `nasm` is now installed on amd64 builds. v2.0.0 remains
+  Pi-verified only; x86 hosts should stay on v1.1.0 until a release containing
+  this fix is tagged.
 - `stage.sh` refuses to empty `/shared` when it is non-empty and holds neither
   `VERSION` nor `.ready` (i.e. not a previous ffmpeg tree): it prints
   `[ffmpeg-provider] refusing to empty /shared: it holds files that are not a
