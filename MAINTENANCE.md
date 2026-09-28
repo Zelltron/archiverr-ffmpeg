@@ -44,13 +44,18 @@ with a libx265 round trip, VAAPI and QSV encode with a one-frame
 
 ## Known gaps
 
-- **amd64 is unverified in v2.0.0.** No x86 host was available to run the
-  Dockerfile end to end; the amd64-only steps (the `libvpl-dev` install, the
-  `--enable-libvpl` configure flag, and the `hevc_qsv` decoder assertion in
-  the build stage) are guarded (`[ "$(dpkg --print-architecture)" = "amd64" ]`)
-  but have not actually executed anywhere. Before promoting `v2.0.0` to the
-  customer compose defaults for x86 hosts, run the Dockerfile on the first
-  real x86 host and fix anything that fails there.
+- **v2.0.0 does not build on amd64.** The first native amd64 CI run
+  (https://github.com/Zelltron/archiverr-ffmpeg/actions/runs/36493019155)
+  failed at `configure`: `nasm/yasm not found or too old`. v1.1.0 has the
+  same gap (no nasm in its package list). Commit `f8581da` installs `nasm`
+  on amd64 and passes CI
+  (https://github.com/Zelltron/archiverr-ffmpeg/actions/runs/36493213294):
+  every build-stage assertion (including `hevc_qsv`) and the verify stage
+  in `node:20-trixie-slim` pass. amd64 is therefore **CI-verified but not
+  runtime-verified**: no x86 host with a GPU has run the tree, and VAAPI /
+  QSV / NVIDIA need runtimes no image ships. Tag a release containing the
+  nasm fix before pointing x86 customers at a tag; until then the customer
+  compose documents the commit SHA as `FFMPEG_PROVIDER_TAG` for amd64.
 
 ## Host glibc constraint (owner box)
 
