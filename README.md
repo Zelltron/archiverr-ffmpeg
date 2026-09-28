@@ -45,15 +45,23 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 | libx264 / libx265 | software encode (transcode, optimize) |
 | `-hwaccel drm` (V4L2 request API, `--enable-v4l2-request --enable-sand`) | Raspberry Pi 4/5 hardware HEVC decode via `rpivid`; needs `/dev/video19`, `/dev/media0-2`, `/dev/dri` |
 | h264/hevc_v4l2m2m | Pi 4 stateful V4L2 M2M codecs (auto-enabled from kernel headers) |
-| VAAPI (`--enable-vaapi`) | Intel / AMD decode and encode via `/dev/dri/renderD128` |
-| Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL |
-| NVIDIA nvdec / nvenc / cuvid (`--enable-ffnvcodec`) | MIT headers at build time; driver libraries loaded at runtime only when present |
+| VAAPI (`--enable-vaapi`) | Intel / AMD decode and encode via `/dev/dri/renderD128` — compiled in, needs a VA driver (see below) |
+| Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL — compiled in, needs the oneVPL GPU runtime (see below) |
+| NVIDIA nvdec / nvenc / cuvid (`--enable-ffnvcodec`) | MIT headers at build time; driver libraries loaded at runtime only when present (see below) |
 | libass + freetype/fontconfig/fribidi/harfbuzz | subtitle burn-in |
 | libdav1d | fast AV1 software decode |
 | openssl (`--enable-version3`) | TLS for IPTV https inputs |
 | libzvbi | DVB teletext subtitle decode (IPTV streams) |
 | OpenCL (`--enable-opencl`) | GPU filters (e.g. `tonemap_opencl`) on hosts with an ICD |
 | native aac/ac3/dts/... | audio (built into FFmpeg) |
+
+**Hardware status in this release.** Raspberry Pi 4/5 HEVC decode
+(`-hwaccel drm`) is the hardware path verified on real hardware. VAAPI, QSV
+and NVIDIA are compiled in and Archiverr probes each at startup, but they need
+a VA driver, the oneVPL GPU runtime or the NVIDIA container runtime, and
+neither this image nor the Archiverr image ships those today. On Intel, AMD
+and NVIDIA hosts those paths therefore disable themselves and transcoding
+stays in software.
 
 Deliberately excluded: libbluray (Archiverr never reads BDMV disc structures),
 libvpx/libopus/libvorbis/libtheora (Archiverr encodes only h264/hevc/aac/eac3),
@@ -94,8 +102,8 @@ binaries themselves. Native arm64 builds on a Pi 5 take 30-40 minutes.
   directory. The nv-codec-headers tag ships no `LICENSE` file, so the
   Dockerfile assembles `LICENSES/nv-codec-headers.LICENSE` from the MIT
   notices in the headers themselves.
-- `--enable-version3` exists because OpenSSL and libvpl (Apache-2.0) are
-  GPLv3-compatible but not GPLv2-compatible.
+- `--enable-version3` exists because OpenSSL 3 (Apache-2.0) is
+  GPLv3-compatible but not GPLv2-compatible. libvpl is MIT.
 
 ### If you redistribute the built image
 

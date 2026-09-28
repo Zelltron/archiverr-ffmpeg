@@ -11,7 +11,7 @@ is the runbook.
 | FFmpeg source | `jc-kynesim/rpi-ffmpeg`, branch `test/7.1.5/main` | `ARG FFMPEG_REPO`, `ARG FFMPEG_REF` in Dockerfile |
 | Pinned commit | see `ARG FFMPEG_REF` | Dockerfile |
 | Version string | `7.1.5-Archiverr` | `ARG FFMPEG_VERSION`, `--extra-version` |
-| NVIDIA headers | `FFmpeg/nv-codec-headers` tag in `ARG NVCODEC_TAG` | Dockerfile |
+| NVIDIA headers | `FFmpeg/nv-codec-headers` commit `ARG NVCODEC_REF` (= tag `ARG NVCODEC_TAG`) | Dockerfile |
 | Build base | `debian:trixie-slim` (must match Archiverr's `node:20-trixie-slim` glibc) | Dockerfile |
 | Image tag | `vX.Y.Z` = git tag = compose `FFMPEG_PROVIDER_TAG` / `#tag` build context | media-archivist compose files |
 
@@ -26,9 +26,9 @@ is the runbook.
 | Host | Decode | Encode | Device nodes the app container needs |
 |---|---|---|---|
 | Raspberry Pi 5 | HEVC via `-hwaccel drm` (rpivid); H.264 software | software libx264 (no encode block) | `/dev/video19`, `/dev/media0-2`, `/dev/dri`; groups `video`, `render` |
-| Raspberry Pi 4 | HEVC via `-hwaccel drm`; H.264 via `h264_v4l2m2m` | `h264_v4l2m2m` (quality poor; Archiverr uses libx264) | same as Pi 5 plus the M2M nodes |
-| Intel / AMD | VAAPI (`*_vaapi`); Intel also QSV (`*_qsv`, amd64 build) | VAAPI / QSV | `/dev/dri` |
-| NVIDIA | nvdec / cuvid | nvenc | NVIDIA container runtime (driver libraries) |
+| Raspberry Pi 4 | HEVC via `-hwaccel drm`; H.264 software (as on every Pi — no Archiverr path uses `h264_v4l2m2m` for decode) | software libx264 (`h264_v4l2m2m` is compiled in but unused: quality poor) | same as Pi 5 |
+| Intel / AMD | VAAPI (`*_vaapi`); Intel also QSV (`*_qsv`, amd64 build) — compiled in, probed at startup, but needs a VA driver / oneVPL runtime that no image ships today, so it disables itself | same | `/dev/dri` plus the driver/runtime |
+| NVIDIA | nvdec / cuvid — compiled in, needs the NVIDIA container runtime, which no image configures today | nvenc (same) | NVIDIA container runtime (driver libraries) |
 | Anything else | software | software | none |
 
 `/dev/dma_heap` is **not** required for the drm path and, with the default
@@ -38,8 +38,9 @@ set `ARCHIVERR_V4L2_DMAHEAP=1` and have confirmed the CMA heap is large
 enough on that host.
 
 Archiverr's `hardware.ts` probes each path at boot (it never trusts the
-compiled-in list alone): NVENC with a real encode, `drm` with a libx265
-round trip on the Pi. A failed probe means the software path, never an error.
+compiled-in list alone): NVENC with a real encode, `drm` and VAAPI decode
+with a libx265 round trip, VAAPI and QSV encode with a one-frame
+`h264_vaapi` / `h264_qsv` encode. A failed probe means the software path, never an error.
 
 ## Known gaps
 
@@ -71,10 +72,17 @@ what Ubuntu 24.04 ships, which breaks the host-run binaries (not the
 Archiverr container, which stays on `node:20-trixie-slim`) until the host
 OS is upgraded. Re-run this check before promoting any new tag.
 
+Consumer images must be trixie-based (glibc 2.41) or newer; bookworm cannot
+load the tree. That covers media-archivist's `Dockerfile`, `Dockerfile.dev`
+and `Dockerfile.prod` as well as any third-party image that mounts the tree.
+
 ## Staging contract (consumed by Archiverr)
 
 `stage.sh` wipes `/shared` and copies: `ffmpeg`, `ffprobe` (RPATH `$ORIGIN/lib`),
-`lib/`, `LICENSES/`, `VERSION`, then `.ready` last. Archiverr mounts that
+`lib/`, `LICENSES/`, `VERSION`, then `.ready` last. It refuses to wipe (exit 1,
+healthcheck fails) when `/shared` is non-empty but holds neither `VERSION` nor
+`.ready`, i.e. when a bind mount points at a directory that is not a previous
+tree; always give the sidecar a dedicated directory or a named volume. Archiverr mounts that
 directory read-only at `/opt/archiverr-ffmpeg`, waits for `.ready` through the
 compose healthcheck, and logs `VERSION` at startup. Do not rename these files
 without changing `server/routes/player/constants.ts` and `hardware.ts` in
@@ -84,8 +92,9 @@ media-archivist.
 
 1. `git ls-remote https://github.com/jc-kynesim/rpi-ffmpeg test/7.1.x/main`
    (or the next point release branch) and pick the commit.
-2. Set `ARG FFMPEG_REF`, `ARG FFMPEG_VERSION` (and `NVCODEC_TAG` if FFmpeg
-   requires newer headers).
+2. Set `ARG FFMPEG_REF`, `ARG FFMPEG_VERSION` (and `NVCODEC_TAG` plus
+   `NVCODEC_REF` from `git ls-remote https://github.com/FFmpeg/nv-codec-headers.git
+   'refs/tags/<tag>^{}'` if FFmpeg requires newer headers).
 3. `docker build --target verify -t archiverr-ffmpeg:verify .` on the Pi; the
    build fails on any missing hardware path (assertions in the Dockerfile).
 4. Run the real-hardware check on the Pi (below). Record the speed in

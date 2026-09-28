@@ -9,6 +9,14 @@
 #   /shared/.ready                    written last; the compose healthcheck tests it
 set -e
 
+# /shared is emptied on every start. Refuse if it holds anything that is not
+# a previous ffmpeg tree (a bind mount pointed at the wrong host directory):
+# exiting non-zero leaves .ready unwritten, so the healthcheck fails visibly.
+if [ -n "$(ls -A /shared 2>/dev/null)" ] && [ ! -e /shared/VERSION ] && [ ! -e /shared/.ready ]; then
+    echo "[ffmpeg-provider] refusing to empty /shared: it holds files that are not a previous ffmpeg tree"
+    exit 1
+fi
+
 rm -f /shared/.ready
 # Clear whatever a previous provider left behind.
 find /shared -mindepth 1 -maxdepth 1 -exec rm -rf {} +

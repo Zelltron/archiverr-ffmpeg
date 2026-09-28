@@ -61,7 +61,11 @@ ARG FFMPEG_REPO=jc-kynesim/rpi-ffmpeg
 ARG FFMPEG_REF=950ab0323334111e1a4cdc6b037eadfaf0524167
 ARG FFMPEG_VERSION=7.1.5
 # MIT headers only; the NVIDIA driver libraries are dlopen'ed at runtime.
+# The build checks out NVCODEC_REF (the commit NVCODEC_TAG points at, so a
+# moved tag cannot change the build); NVCODEC_TAG names the release archive
+# that mirror-sources.sh collects. Bump both together.
 ARG NVCODEC_TAG=n12.2.72.0
+ARG NVCODEC_REF=c69278340ab1d5559c7d7bf0edf615dc33ddbba7
 
 # ──────────────────────────────────────────────────────────────
 # Stage 1: build FFmpeg (glibc matches node:20-trixie-slim)
@@ -72,6 +76,7 @@ ARG FFMPEG_REPO
 ARG FFMPEG_REF
 ARG FFMPEG_VERSION
 ARG NVCODEC_TAG
+ARG NVCODEC_REF
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config curl ca-certificates xz-utils patchelf git patch \
@@ -101,7 +106,10 @@ RUN set -e; if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
 # NVIDIA codec headers (MIT): enables nvdec/nvenc/cuvid at build time.
 # The repo ships no LICENSE file; each header carries its own MIT notice,
 # so the license file is assembled from those leading comment blocks.
-RUN git clone --depth 1 --branch "${NVCODEC_TAG}" https://github.com/FFmpeg/nv-codec-headers.git /build-nv \
+RUN git init -q /build-nv \
+    && git -C /build-nv fetch -q --depth 1 https://github.com/FFmpeg/nv-codec-headers.git "${NVCODEC_REF}" \
+    && git -C /build-nv checkout -q FETCH_HEAD \
+    && [ "$(git -C /build-nv rev-parse HEAD)" = "${NVCODEC_REF}" ] \
     && make -C /build-nv install PREFIX=/usr \
     && for h in /build-nv/include/ffnvcodec/*.h; do \
          printf '==> %s <==\n' "$(basename "$h")"; sed -n '1,/\*\//p' "$h"; echo; \
@@ -118,8 +126,8 @@ RUN curl -fsSL "https://github.com/${FFMPEG_REPO}/archive/${FFMPEG_REF}.tar.gz" 
 COPY patches/ /build/patches/
 RUN set -e; for p in /build/patches/*.patch; do patch -p1 < "$p"; done
 
-# --enable-version3: OpenSSL (Apache-2.0) and libvpl (Apache-2.0) are
-# GPLv3-compatible but not GPLv2-compatible.
+# --enable-version3: OpenSSL 3 (Apache-2.0) is GPLv3-compatible but not
+# GPLv2-compatible. (libvpl is MIT and needs no such flag.)
 # --enable-v4l2-request/--enable-libdrm/--enable-libudev/--enable-sand:
 #   the fork's Pi decode path (hevc hwaccel "drm", unsand filter).
 # --enable-vaapi: Intel/AMD. --enable-libvpl: Intel QSV (amd64 only).
