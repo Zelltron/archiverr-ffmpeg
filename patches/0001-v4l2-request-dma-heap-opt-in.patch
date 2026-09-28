@@ -1,0 +1,22 @@
+diff --git a/libavcodec/v4l2_req_dmabufs.c b/libavcodec/v4l2_req_dmabufs.c
+--- a/libavcodec/v4l2_req_dmabufs.c
++++ b/libavcodec/v4l2_req_dmabufs.c
+@@ -326,6 +326,18 @@
+ 
+ static int ctl_cma_new2(struct dmabufs_ctl * dbsc, const char * const * names)
+ {
++    // Archiverr: dma-heap frame pools are opt-in. On stock Raspberry Pi
++    // kernels the CMA heap is far too small for 4K HEVC pools (ENOMEM once
++    // decoding starts) while the driver's own MMap buffers work at speed.
++    // Set ARCHIVERR_V4L2_DMAHEAP=1 to re-enable dma-heap allocation.
++    {
++        const char * const env = getenv("ARCHIVERR_V4L2_DMAHEAP");
++        if (env == NULL || *env == '\0' || *env == '0') {
++            request_log("dma_heap buffers disabled (set ARCHIVERR_V4L2_DMAHEAP=1 to enable); using mmap buffers\n");
++            return -1;
++        }
++    }
++
+     for (; *names != NULL; ++names)
+     {
+         while ((dbsc->fd = open(*names, O_RDWR | __O_CLOEXEC)) == -1 &&
