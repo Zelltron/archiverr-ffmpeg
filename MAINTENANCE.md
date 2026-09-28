@@ -51,6 +51,26 @@ round trip on the Pi. A failed probe means the software path, never an error.
   customer compose defaults for x86 hosts, run the Dockerfile on the first
   real x86 host and fix anything that fails there.
 
+## Host glibc constraint (owner box)
+
+This tree is built on Debian trixie, and the owner host (Raspberry Pi 5,
+Ubuntu 24.04) runs these binaries directly, not only inside the Archiverr
+container — the dev server, scripts and tests all shell out to
+`/opt/archiverr-ffmpeg/ffmpeg` on the bare host. The host's glibc must
+therefore be at least as new as the highest `GLIBC_x.y` symbol version any
+binary or library in the staged tree imports. Check this on every bump:
+
+```bash
+for f in ffmpeg ffprobe lib/*.so*; do objdump -T "$f" | grep -oE 'GLIBC_[0-9.]+'; done | sort -uV | tail -1
+```
+
+and compare it against `ldd --version` on the host. v2.0.0 imports up to
+`GLIBC_2.39`, and Ubuntu 24.04 ships `2.39` — it works, but with no margin.
+A future trixie point release could raise the highest imported symbol past
+what Ubuntu 24.04 ships, which breaks the host-run binaries (not the
+Archiverr container, which stays on `node:20-trixie-slim`) until the host
+OS is upgraded. Re-run this check before promoting any new tag.
+
 ## Staging contract (consumed by Archiverr)
 
 `stage.sh` wipes `/shared` and copies: `ffmpeg`, `ffprobe` (RPATH `$ORIGIN/lib`),
