@@ -45,8 +45,8 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 | libx264 / libx265 | software encode (transcode, optimize) |
 | `-hwaccel drm` (V4L2 request API, `--enable-v4l2-request --enable-sand`) | Raspberry Pi 4/5 hardware HEVC decode via `rpivid`; needs `/dev/video19`, `/dev/media0-2`, `/dev/dri` |
 | h264/hevc_v4l2m2m | Pi 4 stateful V4L2 M2M codecs (auto-enabled from kernel headers) |
-| VAAPI (`--enable-vaapi`) | Intel / AMD decode and encode via `/dev/dri/renderD128` — compiled in, needs a VA driver (see below) |
-| Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL — compiled in, needs the oneVPL GPU runtime (see below) |
+| VAAPI (`--enable-vaapi`) | Intel / AMD decode and encode via `/dev/dri/renderD128`. amd64 images stage the Intel VA drivers (iHD for Broadwell and newer, i965 for older iGPUs) under `lib/dri/`; AMD's Mesa driver is a build-time opt-in (`VA_DRIVERS=intel,amd`, adds LLVM, about 135 MB) |
+| Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL; the oneVPL GPU runtime (`libmfx-gen`) is staged in `lib/` |
 | NVIDIA nvdec / nvenc / cuvid (`--enable-ffnvcodec`) | MIT headers at build time; driver libraries loaded at runtime only when present (see below) |
 | libass + freetype/fontconfig/fribidi/harfbuzz | subtitle burn-in |
 | libdav1d | fast AV1 software decode |
@@ -82,9 +82,15 @@ The container copies the tree to `/shared`, writes `/shared/VERSION`
 ## Build
 
 ```bash
-docker build -t archiverr-ffmpeg:v2.0.1 \
+docker build -t archiverr-ffmpeg:v2.1.0 \
   --build-arg GIT_COMMIT=$(git rev-parse HEAD) .
 ```
+
+`--build-arg VA_DRIVERS=...` selects the VA drivers staged on amd64:
+`intel` (default: iHD + i965 + oneVPL GPU runtime, about 30 MB, all MIT),
+`intel,amd` (adds Mesa radeonsi and its LLVM dependency, about 135 MB more)
+or `none`. arm64 builds stage no drivers whatever the value. Archiverr's
+compose files pass it through as `FFMPEG_VA_DRIVERS`.
 
 Archiverr's compose files build this repo directly as the `ffmpeg-provider`
 service — customers build locally, so Archiverr never distributes the GPL
@@ -97,7 +103,9 @@ binaries themselves. Native arm64 builds on a Pi 5 take 30-40 minutes.
   upstream, credit jc-kynesim and Raspberry Pi Ltd) compiled with
   `--enable-gpl --enable-version3` and linked against libx264/libx265 → the
   combined work is **GPL-3.0-or-later**. License texts for FFmpeg,
-  nv-codec-headers (MIT) and the Debian copyright file of every bundled
+  nv-codec-headers (MIT), the staged VA drivers (Intel media-driver MIT/BSD,
+  gmmlib MIT, i965 MIT, oneVPL GPU runtime MIT; Mesa MIT and LLVM
+  Apache-2.0-with-LLVM-exception in the `amd` variant) and the Debian copyright file of every bundled
   library are staged into `LICENSES/` inside the image and on the shared
   directory. The nv-codec-headers tag ships no `LICENSE` file, so the
   Dockerfile assembles `LICENSES/nv-codec-headers.LICENSE` from the MIT

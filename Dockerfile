@@ -66,6 +66,12 @@ ARG FFMPEG_VERSION=7.1.5
 # that mirror-sources.sh collects. Bump both together.
 ARG NVCODEC_TAG=n12.2.72.0
 ARG NVCODEC_REF=c69278340ab1d5559c7d7bf0edf615dc33ddbba7
+# VA-API / QSV runtime drivers staged into the tree (amd64 only; libva and
+# libvpl dlopen them, Archiverr points LIBVA_DRIVERS_PATH / ONEVPL_SEARCH_PATH
+# at lib/dri). Values: "intel" (iHD + legacy i965 + oneVPL GPU runtime, about
+# 30 MB, all MIT), "intel,amd" (adds Mesa radeonsi, which drags in LLVM: about
+# 135 MB more), "none". arm64 builds stage nothing whatever the value.
+ARG VA_DRIVERS=intel
 
 # ──────────────────────────────────────────────────────────────
 # Stage 1: build FFmpeg (glibc matches node:20-trixie-slim)
@@ -171,6 +177,19 @@ RUN set -e; \
     && make -j"$(nproc)" \
     && make install
 
+# VA-API / QSV runtime drivers. Imported and installed here, after the
+# compile, so a different VA_DRIVERS value never invalidates the FFmpeg
+# build layers above.
+ARG VA_DRIVERS
+RUN set -e; \
+    if [ "$(dpkg --print-architecture)" = "amd64" ] && [ "$VA_DRIVERS" != "none" ]; then \
+        pkgs=""; \
+        case ",$VA_DRIVERS," in *,intel,*) pkgs="$pkgs intel-media-va-driver i965-va-driver libmfx-gen1.2";; esac; \
+        case ",$VA_DRIVERS," in *,amd,*) pkgs="$pkgs mesa-va-drivers";; esac; \
+        apt-get update && apt-get install -y --no-install-recommends $pkgs \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Assemble the self-contained tree: binaries at the root, every non-glibc
 # shared-library dependency in lib/.
 # The hardware-surface greps assert every hardware path (drm, VAAPI,
@@ -202,6 +221,36 @@ RUN set -e; \
         | grep -vE '/ld-linux'; \
     done | sort -u | xargs -I{} cp -L {} /tree/lib/; \
     patchelf --force-rpath --set-rpath '$ORIGIN/lib' /tree/ffmpeg /tree/ffprobe; \
+    # VA drivers are dlopen'ed (libva: <LIBVA_DRIVERS_PATH>/<name>_drv_video.so;
+    # libvpl: <ONEVPL_SEARCH_PATH>/libmfx-gen.so.1.2), so they and their own
+    # dependency closure are staged by hand. DRIVERS lists what was staged
+    # (empty on arm64 / VA_DRIVERS=none); Archiverr logs it at boot.
+    : > /tree/DRIVERS; \
+    if [ "$ARCH" = "amd64" ] && [ "$VA_DRIVERS" != "none" ]; then \
+        mkdir -p /tree/lib/dri; \
+        for drv in /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so \
+                   /usr/lib/x86_64-linux-gnu/dri/i965_drv_video.so \
+                   /usr/lib/x86_64-linux-gnu/dri/radeonsi_drv_video.so \
+                   /usr/lib/x86_64-linux-gnu/libmfx-gen.so.1.2; do \
+            [ -e "$drv" ] || continue; \
+            case "$drv" in *_drv_video.so) dest="/tree/lib/dri/$(basename "$drv")";; *) dest="/tree/lib/$(basename "$drv")";; esac; \
+            cp -L "$drv" "$dest"; \
+            ldd "$drv" | awk '/=> \//{print $3}' \
+            | grep -vE '/(libc|libm|libmvec|libpthread|libdl|librt)\.so' | grep -vE '/ld-linux' \
+            | while read -r dep; do [ -e "/tree/lib/$(basename "$dep")" ] || cp -L "$dep" /tree/lib/; done; \
+            case "$dest" in /tree/lib/dri/*) patchelf --force-rpath --set-rpath '$ORIGIN/..' "$dest";; \
+                            *) patchelf --force-rpath --set-rpath '$ORIGIN' "$dest";; esac; \
+            echo "$(basename "$drv") $(dpkg -S "$drv" | cut -d: -f1)" >> /tree/DRIVERS; \
+        done; \
+        case ",$VA_DRIVERS," in *,intel,*) \
+            test -e /tree/lib/dri/iHD_drv_video.so; test -e /tree/lib/dri/i965_drv_video.so; test -e /tree/lib/libmfx-gen.so.1.2;; esac; \
+        case ",$VA_DRIVERS," in *,amd,*) test -e /tree/lib/dri/radeonsi_drv_video.so;; esac; \
+        for f in /tree/lib/dri/*.so /tree/lib/libmfx-gen.so.*; do \
+            [ -e "$f" ] || continue; \
+            ldd "$f" | grep 'not found' && exit 1 || true; \
+        done; \
+    fi; \
+    cat /tree/DRIVERS; \
     ls -la /tree/lib; \
     # Hardware surface assertions (build fails if any path is missing)
     /tree/ffmpeg -hide_banner -hwaccels | grep -qx drm; \
@@ -224,7 +273,8 @@ RUN set -e; \
     head -1 /tree/VERSION | grep -q "^ffmpeg version ${FFMPEG_VERSION}-Archiverr"; \
     cp /build/COPYING.GPLv3 /build/COPYING.GPLv2 /build/LICENSE.md /tree/LICENSES/; \
     cp /usr/share/nv-codec-headers.LICENSE /tree/LICENSES/nv-codec-headers.LICENSE; \
-    for so in /tree/lib/*.so*; do \
+    for so in /tree/lib/*.so* /tree/lib/dri/*.so; do \
+        [ -e "$so" ] || continue; \
         pkg=$(dpkg -S "$(basename "$so")" 2>/dev/null | head -1 | cut -d: -f1) || continue; \
         [ -n "$pkg" ] && [ -f "/usr/share/doc/$pkg/copyright" ] \
             && cp "/usr/share/doc/$pkg/copyright" "/tree/LICENSES/$pkg.copyright" || true; \
@@ -255,6 +305,11 @@ RUN set -e; \
     [ "$(wc -l < /tree/VERSION)" -eq 3 ]; \
     sed -n 2p /tree/VERSION | grep -q '^source=https://github.com/'; \
     sed -n 3p /tree/VERSION | grep -q '^revision='; \
+    test -f /tree/DRIVERS; \
+    for f in /tree/lib/dri/*.so /tree/lib/libmfx-gen.so.*; do \
+        [ -e "$f" ] || continue; \
+        ldd "$f" | grep 'not found' && exit 1 || true; \
+    done; \
     echo "verify OK"
 
 # ──────────────────────────────────────────────────────────────
@@ -270,6 +325,7 @@ FROM alpine:3.20
 ARG FFMPEG_VERSION
 ARG FFMPEG_REPO
 ARG FFMPEG_REF
+ARG VA_DRIVERS
 ARG GIT_COMMIT=unknown
 
 LABEL org.opencontainers.image.title="Archiverr ffmpeg-provider" \
@@ -278,6 +334,7 @@ LABEL org.opencontainers.image.title="Archiverr ffmpeg-provider" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \
       org.opencontainers.image.licenses="GPL-3.0-or-later" \
       org.opencontainers.image.version="${FFMPEG_VERSION}" \
+      io.archiverr.va-drivers="${VA_DRIVERS}" \
       io.archiverr.ffmpeg.source="https://github.com/${FFMPEG_REPO}/tree/${FFMPEG_REF}"
 
 COPY --from=verify /tree /tree
