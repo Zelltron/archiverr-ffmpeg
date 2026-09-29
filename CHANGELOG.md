@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.1.0 — 2026-09-29
+
+Minor release: bundled VA drivers for Intel hosts (AW-28). Same FFmpeg
+source, patches and hardware paths as v2.0.1.
+
+- New build arg `VA_DRIVERS` (default `intel`; `intel,amd`; `none`). amd64
+  images now stage `iHD_drv_video.so`, `i965_drv_video.so` (under
+  `lib/dri/`, rpath `$ORIGIN/..`) and the oneVPL GPU runtime
+  `libmfx-gen.so.1.2` (in `lib/`) with their dependency closure, about 30 MB.
+  `intel,amd` adds Mesa's `radeonsi_drv_video.so` and LLVM (about 135 MB).
+  arm64 images stage nothing.
+- Staging contract gains `DRIVERS` (one `<file> <debian package>` line per
+  staged driver, empty when none) and `lib/dri/`. Archiverr 
+  sets `LIBVA_DRIVERS_PATH` / `ONEVPL_SEARCH_PATH` to the tree and logs
+  `DRIVERS` at boot.
+- Build assertions: staged drivers exist for the selected variant and `ldd`
+  resolves them inside the tree (build stage and the verify stage).
+- CI builds both `intel` and `intel,amd` on amd64 on every push.
+- `mirror-sources.sh` also mirrors intel-media-driver, gmmlib,
+  intel-vaapi-driver, onevpl-gpu, mesa and llvm-toolchain-19.
+- Image label `io.archiverr.va-drivers` records the variant.
+- Runtime verification on Intel hardware is pending (no host available);
+  the probes in Archiverr still disable a path that does not work.
+
 ## v2.0.1 — 2026-09-29
 
 Patch release: the amd64 build fix and the staging guard. Same FFmpeg source

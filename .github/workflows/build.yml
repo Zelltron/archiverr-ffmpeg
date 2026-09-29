@@ -1,7 +1,8 @@
 name: build
 
 # Native amd64 build of the image. The build-stage hardware assertions and the
-# verify stage (runs the tree inside node:20-trixie-slim) are the test.
+# verify stage (runs the tree inside node:20-trixie-slim) are the test. Both
+# driver variants are built so a VA_DRIVERS value can never rot unnoticed.
 on:
   push:
     branches: ['**']
@@ -11,9 +12,16 @@ jobs:
   build-amd64:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        va_drivers: ['intel', 'intel,amd']
     steps:
       - uses: actions/checkout@v4
       - name: Build image (assertions + verify stage)
-        run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t archiverr-ffmpeg:ci .
-      - name: Show VERSION
-        run: docker run --rm archiverr-ffmpeg:ci cat /tree/VERSION
+        run: docker build --build-arg GIT_COMMIT=${{ github.sha }} --build-arg VA_DRIVERS="${{ matrix.va_drivers }}" -t archiverr-ffmpeg:ci .
+      - name: Show VERSION, DRIVERS and staged driver files
+        run: |
+          docker run --rm archiverr-ffmpeg:ci cat /tree/VERSION /tree/DRIVERS
+          docker run --rm archiverr-ffmpeg:ci sh -c 'ls -la /tree/lib/dri /tree/lib/libmfx-gen.so.* 2>/dev/null; du -sh /tree'
+          docker image ls archiverr-ffmpeg:ci --format '{{.Size}}'

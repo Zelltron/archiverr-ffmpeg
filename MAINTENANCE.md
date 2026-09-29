@@ -27,7 +27,8 @@ is the runbook.
 |---|---|---|---|
 | Raspberry Pi 5 | HEVC via `-hwaccel drm` (rpivid); H.264 software | software libx264 (no encode block) | `/dev/video19`, `/dev/media0-2`, `/dev/dri`; groups `video`, `render` |
 | Raspberry Pi 4 | HEVC via `-hwaccel drm`; H.264 software (as on every Pi — no Archiverr path uses `h264_v4l2m2m` for decode) | software libx264 (`h264_v4l2m2m` is compiled in but unused: quality poor) | same as Pi 5 |
-| Intel / AMD | VAAPI (`*_vaapi`); Intel also QSV (`*_qsv`, amd64 build) — compiled in, probed at startup, but needs a VA driver / oneVPL runtime that no image ships today, so it disables itself | same | `/dev/dri` plus the driver/runtime |
+| Intel | VAAPI (`*_vaapi`) and QSV (`*_qsv`): the amd64 image stages the iHD and i965 VA drivers and the oneVPL GPU runtime; Archiverr sets `LIBVA_DRIVERS_PATH` / `ONEVPL_SEARCH_PATH` to the tree and probes both at startup. **Runtime-verified: pending** (no Intel host yet; see Known gaps) | same | `/dev/dri` (uncomment it in the customer compose) |
+| AMD | VAAPI via Mesa radeonsi — build-time opt-in `VA_DRIVERS=intel,amd` (LLVM, about 135 MB more); otherwise software | same | `/dev/dri` |
 | NVIDIA | nvdec / cuvid — compiled in, needs the NVIDIA container runtime, which no image configures today | nvenc (same) | NVIDIA container runtime (driver libraries) |
 | Anything else | software | software | none |
 
@@ -42,7 +43,26 @@ compiled-in list alone): NVENC with a real encode, `drm` and VAAPI decode
 with a libx265 round trip, VAAPI and QSV encode with a one-frame
 `h264_vaapi` / `h264_qsv` encode. A failed probe means the software path, never an error.
 
+## VA drivers (amd64)
+
+`ARG VA_DRIVERS` (default `intel`) installs the driver packages *after* the
+FFmpeg compile and stages them into the tree: `lib/dri/<name>_drv_video.so`
+with an `$ORIGIN/..` rpath (their dependency closure lands in `lib/`) and
+`lib/libmfx-gen.so.1.2` for QSV. `DRIVERS` next to `VERSION` lists what was
+staged (one `<file> <debian package>` line each; empty on arm64 or `none`).
+libva and libvpl dlopen these by name, so Archiverr must point
+`LIBVA_DRIVERS_PATH` at `<tree>/lib/dri` and `ONEVPL_SEARCH_PATH` at
+`<tree>/lib` (it does, from `constants.ts`, when the directory exists). CI
+builds both variants on every push. Bumping the fork or Debian base: re-check
+the `ldd` assertions on `lib/dri/*.so` still resolve inside the tree.
+
 ## Known gaps
+
+- **Intel VAAPI/QSV are staged but not runtime-verified.** No Intel host with
+  an iGPU has run the tree yet; CI proves the drivers build, stage and
+  resolve, not that they decode. Tracked as a separate Archiverr ticket (AW:
+  "verify bundled Intel VA drivers on real hardware"). Until then the
+  Archiverr docs say "bundled, verification pending".
 
 - **v2.0.0 (and v1.1.0) do not build on amd64.** The first native amd64 CI run
   (https://github.com/Zelltron/archiverr-ffmpeg/actions/runs/36493019155)

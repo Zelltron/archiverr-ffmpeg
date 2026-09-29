@@ -6,6 +6,8 @@
 #   /shared/lib/                      every non-glibc shared library
 #   /shared/LICENSES/                 license texts (GPL corresponding-source pointer)
 #   /shared/VERSION                   "ffmpeg version ..." + source= + revision= lines
+#   /shared/DRIVERS                   one "<file> <debian package>" line per staged VA driver (may be empty)
+#   /shared/lib/dri/                  VA drivers (amd64 builds), for LIBVA_DRIVERS_PATH
 #   /shared/.ready                    written last; the compose healthcheck tests it
 set -e
 
