@@ -39,7 +39,7 @@ docker run --rm -v "$OUT":/out -w /out debian:trixie-slim sh -c '
              glib2.0 graphite2 libpng1.6 brotli expat libunibreak numactl \
              openssl zlib bzip2 pcre2 libzstd zvbi ocl-icd \
              libdrm systemd libva libvpl libcap2 gcc-14 \
-             intel-media-driver gmmlib intel-vaapi-driver onevpl-gpu mesa llvm-toolchain-19; do
+             intel-media-driver intel-gmmlib intel-vaapi-driver onevpl-intel-gpu mesa llvm-toolchain-19; do
     apt-get source --download-only "$src" 2>/dev/null || echo "WARN: no source for $src"
   done
 '

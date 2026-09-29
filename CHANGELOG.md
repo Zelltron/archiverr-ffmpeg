@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `mirror-sources.sh`: the Debian source packages behind `libigdgmm12` and
+  `libmfx-gen1.2` are `intel-gmmlib` and `onevpl-intel-gpu` (the v2.1.0 run
+  used the wrong names; both archives were added to the v2.1.0 release by hand).
+
 ## v2.1.0 — 2026-09-29
 
 Minor release: bundled VA drivers for Intel hosts (AW-28). Same FFmpeg
