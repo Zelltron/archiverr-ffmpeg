@@ -1,0 +1,19 @@
+name: build
+
+# Native amd64 build of the image. The build-stage hardware assertions and the
+# verify stage (runs the tree inside node:20-trixie-slim) are the test.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (assertions + verify stage)
+        run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t archiverr-ffmpeg:ci .
+      - name: Show VERSION
+        run: docker run --rm archiverr-ffmpeg:ci cat /tree/VERSION
