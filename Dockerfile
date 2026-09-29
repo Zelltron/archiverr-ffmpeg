@@ -48,7 +48,7 @@
 # is unchanged.
 #
 # Build (native arm64 on the Pi), from the root of this repo:
-#   docker build -t archiverr-ffmpeg:v2.0.0 --build-arg GIT_COMMIT=$(git rev-parse HEAD) .
+#   docker build -t archiverr-ffmpeg:v2.0.1 --build-arg GIT_COMMIT=$(git rev-parse HEAD) .
 # ================================================================
 
 # Raspberry Pi FFmpeg fork (upstream 7.1.5 + guarded Pi patches): the only
