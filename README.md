@@ -26,14 +26,17 @@ tracks upstream point releases, and its patches are guarded so the same source
 builds and behaves like vanilla on x86. One source, one Dockerfile, every host.
 
 On top of the fork, the build applies our own patches from `patches/` before
-`configure` runs (currently `0001-v4l2-request-dma-heap-opt-in.patch`; see
-"Patches we carry" in `MAINTENANCE.md`). That patch makes the V4L2 request-API
-decoder's dma-heap frame pools opt-in via `ARCHIVERR_V4L2_DMAHEAP=1`: on stock
-Raspberry Pi kernels the CMA heap is too small for 4K HEVC pools and dma-heap
-allocation fails with ENOMEM, so by default the decoder logs `dma_heap buffers
-disabled (set ARCHIVERR_V4L2_DMAHEAP=1 to enable); using mmap buffers` and uses
-the driver's MMap buffers instead, which is what every `-hwaccel drm` speed
-figure in this repo was measured with.
+`configure` runs (see "Patches we carry" in `MAINTENANCE.md`):
+`0001-v4l2-request-dma-heap-opt-in.patch` makes the V4L2 request-API
+decoder's dma-heap frame pools opt-in behind `ARCHIVERR_V4L2_DMAHEAP=1`
+(the stock Pi CMA heap is too small for 4K HEVC pools, so by default the
+decoder logs `dma_heap buffers disabled (set ARCHIVERR_V4L2_DMAHEAP=1 to
+enable); using mmap buffers` and uses the driver's MMap buffers, which every
+`-hwaccel drm` speed figure in this repo was measured with), and
+`0002-fftools-skip-hw-preroll-before-seek.patch` drops hardware frames that
+precede an accurate `-ss` start before the hwaccel downloads them, so a seek
+that lands several seconds past a source keyframe no longer copies the
+pre-roll to system memory only to discard it.
 
 ## What's inside
 

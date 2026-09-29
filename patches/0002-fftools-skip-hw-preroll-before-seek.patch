@@ -1,0 +1,96 @@
+diff --git a/fftools/ffmpeg.h b/fftools/ffmpeg.h
+--- a/fftools/ffmpeg.h
++++ b/fftools/ffmpeg.h
+@@ -415,6 +415,13 @@
+     // Either forced (when DECODER_FLAG_FRAMERATE_FORCED is set) or
+     // estimated (otherwise) video framerate.
+     AVRational                  framerate;
++
++    // Archiverr: accurate-seek start in AV_TIME_BASE units, or AV_NOPTS_VALUE.
++    // Hardware-decoded video frames with an earlier timestamp are dropped by
++    // the decoder before the hwaccel download instead of by the trim filter
++    // the front end inserts for -ss, which would otherwise copy every
++    // pre-roll frame to system memory only to discard it.
++    int64_t                     skip_hw_frames_before_us;
+ } DecoderOpts;
+ 
+ typedef struct Decoder {
+diff --git a/fftools/ffmpeg_dec.c b/fftools/ffmpeg_dec.c
+--- a/fftools/ffmpeg_dec.c
++++ b/fftools/ffmpeg_dec.c
+@@ -58,6 +58,10 @@
+     enum HWAccelID      hwaccel_id;
+     enum AVHWDeviceType hwaccel_device_type;
+     enum AVPixelFormat  hwaccel_output_format;
++    // see DecoderOpts.skip_hw_frames_before_us
++    int64_t             skip_hw_frames_before_us;
++    int64_t             skipped_hw_frames;
++    int                 skipped_hw_frames_logged;
+ 
+     // pts/estimated duration of the last decoded frame
+     // * in decoder timebase for video,
+@@ -394,6 +398,24 @@
+     }
+ #endif
+ 
++    // Archiverr: a hardware frame the accurate-seek trim would discard is
++    // dropped here, before the (expensive) download to system memory.
++    if (!no_cvt_hw && frame->format == dp->hwaccel_pix_fmt &&
++        dp->skip_hw_frames_before_us != AV_NOPTS_VALUE &&
++        frame->best_effort_timestamp != AV_NOPTS_VALUE &&
++        av_rescale_q(frame->best_effort_timestamp, frame->time_base, AV_TIME_BASE_Q) <
++            dp->skip_hw_frames_before_us) {
++        dp->skipped_hw_frames++;
++        av_frame_unref(frame);
++        *outputs_mask = 0;
++        return 0;
++    }
++    if (dp->skipped_hw_frames && !dp->skipped_hw_frames_logged) {
++        av_log(dp, AV_LOG_VERBOSE, "Dropped %"PRId64" hardware frame(s) before the seek start without downloading them\n",
++               dp->skipped_hw_frames);
++        dp->skipped_hw_frames_logged = 1;
++    }
++
+     if (!no_cvt_hw && frame->format == dp->hwaccel_pix_fmt) {
+         int err = hwaccel_retrieve_data(dp->dec_ctx, frame);
+         if (err < 0)
+@@ -848,6 +870,7 @@
+         return AVERROR_BUG;
+ 
+     memset(&o, 0, sizeof(o));
++    o.skip_hw_frames_before_us = AV_NOPTS_VALUE;
+ 
+     o.par       = fd->par_enc;
+     o.time_base = pkt->time_base;
+@@ -1539,6 +1562,7 @@
+     dp->hwaccel_id              = o->hwaccel_id;
+     dp->hwaccel_device_type     = o->hwaccel_device_type;
+     dp->hwaccel_output_format   = o->hwaccel_output_format;
++    dp->skip_hw_frames_before_us = o->skip_hw_frames_before_us;
+ 
+     snprintf(dp->log_name, sizeof(dp->log_name), "dec:%s", codec->name);
+ 
+diff --git a/fftools/ffmpeg_demux.c b/fftools/ffmpeg_demux.c
+--- a/fftools/ffmpeg_demux.c
++++ b/fftools/ffmpeg_demux.c
+@@ -949,6 +949,20 @@
+         snprintf(ds->dec_name, sizeof(ds->dec_name), "%d:%d", ist->file->index, ist->index);
+         ds->dec_opts.name = ds->dec_name;
+ 
++        // Archiverr: same start the trim filter gets in ist_filter_add(), so
++        // hardware pre-roll frames can be dropped before the hwaccel download.
++        {
++            int64_t tsoffset = 0;
++            if (copy_ts) {
++                tsoffset = d->f.start_time == AV_NOPTS_VALUE ? 0 : d->f.start_time;
++                if (!start_at_zero && d->f.ctx->start_time != AV_NOPTS_VALUE)
++                    tsoffset += d->f.ctx->start_time;
++            }
++            ds->dec_opts.skip_hw_frames_before_us =
++                ((d->f.start_time == AV_NOPTS_VALUE) || !d->accurate_seek) ?
++                AV_NOPTS_VALUE : tsoffset;
++        }
++
+         ds->dec_opts.codec = ist->dec;
+         ds->dec_opts.par   = ist->par;
+ 

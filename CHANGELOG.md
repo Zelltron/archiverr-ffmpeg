@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v2.2.0 — 2026-09-29
+
+Minor release: faster seeks on hardware-decoded 4K sources. Same FFmpeg
+source and hardware paths as v2.1.0; one new patch.
+
+- `patches/0002-fftools-skip-hw-preroll-before-seek.patch`: with an
+  accurate `-ss` the decoder now drops hardware frames that precede the seek
+  start before the hwaccel downloads them, instead of copying every pre-roll
+  frame to system memory for the trim filter to discard. Pure hardware
+  decode on a Pi 5 runs at about 130 fps against about 50 fps with the copy,
+  so the first segment after a seek that lands 8 s past a keyframe arrives
+  about 3 s sooner. Output is unchanged; software decode is unaffected.
+  `-loglevel verbose` reports `Dropped N hardware frame(s) before the seek
+  start`.
+
 - `mirror-sources.sh`: the Debian source packages behind `libigdgmm12` and
   `libmfx-gen1.2` are `intel-gmmlib` and `onevpl-intel-gpu` (the v2.1.0 run
   used the wrong names; both archives were added to the v2.1.0 release by hand).
