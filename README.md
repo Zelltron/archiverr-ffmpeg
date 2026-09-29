@@ -82,7 +82,7 @@ The container copies the tree to `/shared`, writes `/shared/VERSION`
 ## Build
 
 ```bash
-docker build -t archiverr-ffmpeg:v2.0.0 \
+docker build -t archiverr-ffmpeg:v2.0.1 \
   --build-arg GIT_COMMIT=$(git rev-parse HEAD) .
 ```
 

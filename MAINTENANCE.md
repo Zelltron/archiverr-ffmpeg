@@ -44,7 +44,7 @@ with a libx265 round trip, VAAPI and QSV encode with a one-frame
 
 ## Known gaps
 
-- **v2.0.0 does not build on amd64.** The first native amd64 CI run
+- **v2.0.0 (and v1.1.0) do not build on amd64.** The first native amd64 CI run
   (https://github.com/Zelltron/archiverr-ffmpeg/actions/runs/36493019155)
   failed at `configure`: `nasm/yasm not found or too old`. v1.1.0 has the
   same gap (no nasm in its package list). Commit `f8581da` installs `nasm`
@@ -53,9 +53,9 @@ with a libx265 round trip, VAAPI and QSV encode with a one-frame
   every build-stage assertion (including `hevc_qsv`) and the verify stage
   in `node:20-trixie-slim` pass. amd64 is therefore **CI-verified but not
   runtime-verified**: no x86 host with a GPU has run the tree, and VAAPI /
-  QSV / NVIDIA need runtimes no image ships. Tag a release containing the
-  nasm fix before pointing x86 customers at a tag; until then the customer
-  compose documents the commit SHA as `FFMPEG_PROVIDER_TAG` for amd64.
+  QSV / NVIDIA need runtimes no image ships. **v2.0.1 is the first tag that
+  contains the nasm fix**; the Archiverr compose files default to it. Keep
+  x86 customers on v2.0.1 or later, never on v2.0.0/v1.1.0.
 
 ## Host glibc constraint (owner box)
 

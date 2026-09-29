@@ -1,18 +1,23 @@
 # Changelog
 
-## Unreleased
+## v2.0.1 — 2026-09-29
+
+Patch release: the amd64 build fix and the staging guard. Same FFmpeg source
+(fork commit `950ab032`), same patches, same hardware paths as v2.0.0; the
+arm64 tree is byte-for-byte equivalent apart from the provenance labels.
+
 
 - **amd64 build fix.** The first native amd64 CI run
   (https://github.com/Zelltron/archiverr-ffmpeg/actions/runs/36493019155)
   showed v2.0.0 cannot build on x86: `configure` stops with `nasm/yasm not
-  found or too old`. `nasm` is now installed on amd64 builds. v2.0.0 remains
-  Pi-verified only; x86 hosts should stay on v1.1.0 until a release containing
-  this fix is tagged.
-- `stage.sh` refuses to empty `/shared` when it is non-empty and holds neither
-  `VERSION` nor `.ready` (i.e. not a previous ffmpeg tree): it prints
-  `[ffmpeg-provider] refusing to empty /shared: it holds files that are not a
-  previous ffmpeg tree` and exits 1, so the compose healthcheck fails visibly
-  instead of a misdirected bind mount being wiped.
+  found or too old`. `nasm` is now installed on amd64 builds; this release is
+  the first tag that builds on x86 (CI-verified, not runtime-verified).
+- `stage.sh` refuses to empty `/shared` when it holds foreign files (anything
+  other than `lost+found`, dot-entries, or a previous ffmpeg tree with
+  `VERSION`/`.ready`): it prints `[ffmpeg-provider] refusing to empty /shared:
+  it holds files that are not a previous ffmpeg tree` and exits 1, so the
+  compose healthcheck fails visibly instead of a misdirected bind mount being
+  wiped. A freshly formatted partition (only `lost+found`) stages normally.
 - nv-codec-headers is pinned by commit (`ARG NVCODEC_REF`, the commit tag
   `n12.2.72.0` points at) instead of by tag. Same headers as v2.0.0.
 - `mirror-sources.sh` also archives the Debian sources of `libcap2`

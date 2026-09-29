@@ -12,7 +12,10 @@ set -e
 # /shared is emptied on every start. Refuse if it holds anything that is not
 # a previous ffmpeg tree (a bind mount pointed at the wrong host directory):
 # exiting non-zero leaves .ready unwritten, so the healthcheck fails visibly.
-if [ -n "$(ls -A /shared 2>/dev/null)" ] && [ ! -e /shared/VERSION ] && [ ! -e /shared/.ready ]; then
+# A fresh filesystem is still "empty": lost+found and dot-entries (for
+# example .ready from an interrupted stage) do not count as foreign files.
+foreign="$(ls -A /shared 2>/dev/null | grep -v -e '^lost+found$' -e '^\.' || true)"
+if [ -n "$foreign" ] && [ ! -e /shared/VERSION ] && [ ! -e /shared/.ready ]; then
     echo "[ffmpeg-provider] refusing to empty /shared: it holds files that are not a previous ffmpeg tree"
     exit 1
 fi
