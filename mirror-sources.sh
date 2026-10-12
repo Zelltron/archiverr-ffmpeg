@@ -34,12 +34,15 @@ docker run --rm -v "$OUT":/out -w /out debian:trixie-slim sh -c '
   sed -i "s/^Types: deb$/Types: deb deb-src/" /etc/apt/sources.list.d/debian.sources
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends dpkg-dev ca-certificates >/dev/null
-  # GPL (mandatory) + the rest of the bundled runtime libs (completeness)
+  # GPL (mandatory) + the rest of the bundled runtime libs (completeness).
+  # elfutils (libelf, LGPL-3+/GPL-2+), lm-sensors (libsensors, LGPL-2.1),
+  # libedit and libbsd/libmd come in with Mesa in the VA_DRIVERS=intel,amd build.
   for src in x264 x265 libass dav1d freetype fontconfig fribidi harfbuzz \
              glib2.0 graphite2 libpng1.6 brotli expat libunibreak numactl \
              openssl zlib bzip2 pcre2 libzstd zvbi ocl-icd \
              libdrm systemd libva libvpl libcap2 gcc-14 \
-             intel-media-driver intel-gmmlib intel-vaapi-driver onevpl-intel-gpu mesa llvm-toolchain-19; do
+             intel-media-driver intel-gmmlib intel-vaapi-driver onevpl-intel-gpu mesa llvm-toolchain-19 \
+             elfutils lm-sensors libedit libbsd libmd; do
     apt-get source --download-only "$src" 2>/dev/null || echo "WARN: no source for $src"
   done
 '

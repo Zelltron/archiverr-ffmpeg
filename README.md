@@ -60,11 +60,13 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 
 **Hardware status in this release.** Raspberry Pi 4/5 HEVC decode
 (`-hwaccel drm`) is the hardware path verified on real hardware. VAAPI, QSV
-and NVIDIA are compiled in and Archiverr probes each at startup, but they need
-a VA driver, the oneVPL GPU runtime or the NVIDIA container runtime, and
-neither this image nor the Archiverr image ships those today. On Intel, AMD
-and NVIDIA hosts those paths therefore disable themselves and transcoding
-stays in software.
+and NVIDIA are compiled in and Archiverr probes each at startup. On amd64
+the staged tree carries VA drivers in `lib/dri/` (Intel `iHD` and `i965` by
+default, plus Mesa's `radeonsi` with `VA_DRIVERS=intel,amd`) and the oneVPL
+GPU runtime; NVIDIA still needs the NVIDIA container runtime from the host.
+Paths whose hardware or driver is missing disable themselves and transcoding
+stays in software. Every bundled library's licence is in `LICENSES/`, and
+`mirror-sources.sh` collects its source for each release.
 
 Deliberately excluded: libbluray (Archiverr never reads BDMV disc structures),
 libvpx/libopus/libvorbis/libtheora (Archiverr encodes only h264/hevc/aac/eac3),
