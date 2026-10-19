@@ -97,9 +97,14 @@ docker build -t archiverr-ffmpeg:v2.1.0 \
 or `none`. arm64 builds stage no drivers whatever the value. Archiverr's
 compose files pass it through as `FFMPEG_VA_DRIVERS`.
 
-Archiverr's compose files build this repo directly as the `ffmpeg-provider`
-service — customers build locally, so Archiverr never distributes the GPL
-binaries themselves. Native arm64 builds on a Pi 5 take 30-40 minutes.
+Each release is also published as a multi-arch image (amd64 with
+`VA_DRIVERS=intel`, arm64), `ghcr.io/zelltron/archiverr-ffmpeg:<tag>`, by
+`.github/workflows/publish.yml`, so installs (NAS app stores in particular)
+can pull it instead of compiling FFmpeg. The workflow runs when a GitHub
+release is published, and refuses to push unless the release already
+carries the corresponding source (see below). Building locally from this
+repo stays supported, and is the way to get `intel,amd` or `none`. Native
+arm64 builds on a Pi 5 take 30-40 minutes.
 
 ## Licensing
 
@@ -132,10 +137,14 @@ cut a compliant release of this repo:
 3. Build with `--build-arg GIT_COMMIT=<sha>` so the image's
    `org.opencontainers.image.revision` label points back here.
 
+The published ghcr.io images follow these steps: the release (with
+`sources/` attached) is what triggers the publish, and the image's
+`org.opencontainers.image.source` label points at this repository.
+
 Note: H.264/HEVC are patent-encumbered codecs. Building and running locally is
 one thing; *distributing* encoder binaries commercially may have patent
-implications independent of copyright. Archiverr's default model has customers
-build this image on their own machines.
+implications independent of copyright, which apply to the published ghcr.io
+images.
 
 ## Security updates
 

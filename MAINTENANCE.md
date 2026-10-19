@@ -13,7 +13,7 @@ is the runbook.
 | Version string | `7.1.5-Archiverr` | `ARG FFMPEG_VERSION`, `--extra-version` |
 | NVIDIA headers | `FFmpeg/nv-codec-headers` commit `ARG NVCODEC_REF` (= tag `ARG NVCODEC_TAG`) | Dockerfile |
 | Build base | `debian:trixie-slim` (must match Archiverr's `node:20-trixie-slim` glibc) | Dockerfile |
-| Image tag | `vX.Y.Z` = git tag = compose `FFMPEG_PROVIDER_TAG` / `#tag` build context | media-archivist compose files |
+| Image tag | `vX.Y.Z` = git tag = compose `FFMPEG_PROVIDER_TAG` / `#tag` build context = `ghcr.io/zelltron/archiverr-ffmpeg:vX.Y.Z` | media-archivist compose files, `publish.yml` |
 
 ## Patches we carry
 
@@ -127,7 +127,11 @@ media-archivist.
    CHANGELOG.md.
 5. Build the final image with `--build-arg GIT_COMMIT=$(git rev-parse HEAD)`.
 6. Commit, tag `vX.Y.Z`, push, then `./mirror-sources.sh` and attach
-   `sources/` to the GitHub release.
+   `sources/` to the GitHub release. Publishing the release runs
+   `publish.yml`, which pushes `ghcr.io/zelltron/archiverr-ffmpeg:vX.Y.Z`
+   (amd64 + arm64) and fails if the release has no assets. For a release
+   published before the workflow existed, run it by hand (Actions > publish >
+   Run workflow, tag `vX.Y.Z`).
 7. Bump the tag in media-archivist `docker-compose.yml` and
    `docker-compose.customer.yml`, deploy, and confirm the startup log line
    `[Player] ffmpeg: ffmpeg version X-Archiverr ...`.
@@ -159,4 +163,5 @@ Pass: the request-device line is present and `speed=` is above 1.0x.
 - [ ] Dockerfile ARGs updated, assertions pass, real-hardware check recorded
 - [ ] CHANGELOG.md entry
 - [ ] git tag matches image tag; release created with `sources/` attached
+- [ ] `publish` workflow green; `docker buildx imagetools inspect ghcr.io/zelltron/archiverr-ffmpeg:vX.Y.Z` lists amd64 and arm64
 - [ ] media-archivist compose files bumped; THIRD_PARTY_NOTICES §D still accurate
