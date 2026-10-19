@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v2.3.0 — 2026-10-19
+
+Minor release: no HEVC software encoder (libx265 removed). Same FFmpeg source, patches and hardware paths as v2.2.0.
+
 - No HEVC software encoder: `libx265` (and `libnuma`) are no longer built in
   or staged. Archiverr never encodes HEVC in software; its only use was the
   hardware probe's 24-frame test clip, which Archiverr now ships
