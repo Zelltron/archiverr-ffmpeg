@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- No HEVC software encoder: `libx265` (and `libnuma`) are no longer built in
+  or staged. Archiverr never encodes HEVC in software; its only use was the
+  hardware probe's 24-frame test clip, which Archiverr now ships
+  (`hevcProbeClip.ts`). This keeps the published image free of an HEVC
+  encoder (codec patents, AW-172). Hardware HEVC encoders (`hevc_vaapi`,
+  `hevc_qsv`, `hevc_nvenc`, `hevc_v4l2m2m`) are unchanged. The verify stage
+  decodes the same clip from `test/probe.hevc` and fails if `libx265` is
+  present. Needs an Archiverr build with the bundled clip: older builds encode
+  the probe clip with libx265 and fall back to software decode without it.
+
 ## v2.2.0 — 2026-09-29
 
 Minor release: faster seeks on hardware-decoded 4K sources. Same FFmpeg
