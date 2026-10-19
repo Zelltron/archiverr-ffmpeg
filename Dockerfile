@@ -9,8 +9,12 @@
 # the features Archiverr uses (see server/routes/player/* and
 # server/services/iptv):
 #
-#   - libx264 / libx265        software encode (GPL — stays in this
-#                              sidecar, never in the Archiverr image)
+#   - libx264                  software H.264 encode (GPL — stays in this
+#                              sidecar, never in the Archiverr image).
+#                              No libx265: Archiverr never encodes HEVC in
+#                              software, and leaving it out keeps the
+#                              published image free of an HEVC encoder
+#                              (codec patents, AW-172).
 #   - Hardware decode/encode paths:
 #       -hwaccel drm           V4L2 request-API hwaccel for the Pi 4/5
 #                              `rpivid` HEVC decoder (fork-only), plus
@@ -41,7 +45,7 @@
 # (node:20-trixie-slim, same Debian trixie base). The tree also carries
 # a VERSION provenance file (version line, source commit, revision).
 #
-# GPL COMPLIANCE: ffmpeg, libx264 and libx265 are GPL. If this image is
+# GPL COMPLIANCE: ffmpeg and libx264 are GPL. If this image is
 # ever distributed (pushed to a public registry), the corresponding
 # source must be offered — see README.md in this directory. The
 # Archiverr image itself remains GPL-free; the child_process boundary
@@ -87,7 +91,7 @@ ARG NVCODEC_REF
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config curl ca-certificates xz-utils patchelf git patch \
     # GPL codecs (static .a from -dev packages)
-    libx264-dev libx265-dev libnuma-dev \
+    libx264-dev \
     # Subtitle burn-in stack
     libass-dev libfreetype-dev libfontconfig-dev libfribidi-dev \
     libharfbuzz-dev libexpat1-dev \
@@ -155,7 +159,6 @@ RUN set -e; \
         --enable-openssl \
         --enable-zlib \
         --enable-libx264 \
-        --enable-libx265 \
         --enable-libdav1d \
         --enable-libass \
         --enable-libfreetype \
@@ -202,7 +205,7 @@ RUN set -e; \
 # at any mount path without LD_LIBRARY_PATH. --force-rpath emits
 # old-style DT_RPATH (not DT_RUNPATH): DT_RPATH applies to the whole
 # dependency chain, so transitive deps (harfbuzz→glib, freetype→png,
-# x265→numa, ...) also resolve from the staged lib/ directory.
+# ...) also resolve from the staged lib/ directory.
 #
 # GPL compliance: LICENSES/ is staged with the full tree — FFmpeg's
 # license texts from the source tree, the nv-codec-headers MIT license,
@@ -289,6 +292,8 @@ RUN set -e; \
 FROM node:20-trixie-slim AS verify
 
 COPY --from=build /tree /tree
+# Same clip Archiverr's hardware probe decodes (hevcProbeClip.ts).
+COPY test/probe.hevc /tmp/probe.hevc
 RUN set -e; \
     ldd /tree/ffmpeg | grep 'not found' && exit 1 || true; \
     /tree/ffmpeg -version; \
@@ -297,10 +302,8 @@ RUN set -e; \
         -f lavfi -i color=c=black:s=320x240:r=25:d=0.5 \
         -f lavfi -i sine=frequency=440:duration=0.5 \
         -c:v libx264 -c:a aac -f null -; \
-    /tree/ffmpeg -hide_banner -loglevel error \
-        -f lavfi -i testsrc2=size=320x240:rate=25 -frames:v 24 \
-        -c:v libx265 -x265-params log-level=error -f hevc -y /tmp/probe.hevc; \
     /tree/ffmpeg -hide_banner -loglevel error -f hevc -i /tmp/probe.hevc -f null -; \
+    /tree/ffmpeg -hide_banner -encoders | grep -q libx265 && exit 1 || true; \
     # VERSION format (separate commands: set -e ignores non-final && failures)
     [ "$(wc -l < /tree/VERSION)" -eq 3 ]; \
     sed -n 2p /tree/VERSION | grep -q '^source=https://github.com/'; \

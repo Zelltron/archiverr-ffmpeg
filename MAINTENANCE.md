@@ -41,7 +41,7 @@ enough on that host.
 
 Archiverr's `hardware.ts` probes each path at boot (it never trusts the
 compiled-in list alone): NVENC with a real encode, `drm` and VAAPI decode
-with a libx265 round trip, VAAPI and QSV encode with a one-frame
+of the HEVC clip bundled with Archiverr (`hevcProbeClip.ts`; no encode), VAAPI and QSV encode with a one-frame
 `h264_vaapi` / `h264_qsv` encode. A failed probe means the software path, never an error.
 
 ## VA drivers (amd64)
@@ -153,7 +153,7 @@ Pass: the request-device line is present and `speed=` is above 1.0x.
 ## CVE response
 
 - FFmpeg / fork CVE: bump the pin to the fork's fixed point-release branch.
-- Bundled library CVE (x264, x265, libass, dav1d, openssl, libdrm, libva, ...):
+- Bundled library CVE (x264, libass, dav1d, openssl, libdrm, libva, ...):
   rebuild the same tag with `--no-cache`; Debian trixie provides the fix.
   Cut a patch release (`vX.Y.Z+1`) so compose users get it.
 - Floor: rebuild quarterly even without a known CVE.
