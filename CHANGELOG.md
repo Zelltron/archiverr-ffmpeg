@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- HEVC is now decode only: the hardware HEVC encoders (`hevc_nvenc`,
+  `hevc_vaapi`, `hevc_qsv`, `hevc_v4l2m2m`) are disabled at configure time
+  (`--disable-encoder='hevc_*,libx265,libkvazaar'`), so the published image
+  contains no HEVC encoder at all (codec patents, AW-172). Archiverr never
+  selected them: transcodes and Optimize output H.264 and HEVC is only
+  decoded or copied. All HEVC decoders, hardware and software, are
+  unchanged. The verify stage now fails if `-encoders` lists anything HEVC
+  or H.265, replacing the libx265-only check. No Archiverr change is needed;
+  its startup log simply stops listing `hevc_*` encoders.
+
 ## v2.3.0 — 2026-10-19
 
 Minor release: no HEVC software encoder (libx265 removed). Same FFmpeg source, patches and hardware paths as v2.2.0.

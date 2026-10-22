@@ -11,16 +11,19 @@
 #
 #   - libx264                  software H.264 encode (GPL — stays in this
 #                              sidecar, never in the Archiverr image).
-#                              No libx265: Archiverr never encodes HEVC in
-#                              software, and leaving it out keeps the
-#                              published image free of an HEVC encoder
-#                              (codec patents, AW-172).
+#                              No HEVC encoder of any kind: no libx265,
+#                              and the hardware HEVC encoders are
+#                              disabled at configure time. Archiverr only
+#                              decodes or remuxes HEVC, and leaving every
+#                              HEVC encoder out keeps the published image
+#                              decode-only (codec patents, AW-172).
 #   - Hardware decode/encode paths:
 #       -hwaccel drm           V4L2 request-API hwaccel for the Pi 4/5
 #                              `rpivid` HEVC decoder (fork-only), plus
 #                              the `unsand` sand→planar filter
 #       h264_v4l2m2m / hevc_v4l2m2m  V4L2 stateful M2M codecs
-#       VAAPI                  Intel/AMD decode + encode
+#                              (HEVC decode only; see below)
+#       VAAPI                  Intel/AMD decode + H.264 encode
 #       QSV (libvpl)           Intel Quick Sync, amd64 builds only
 #       NVDEC / NVENC / cuvid  NVIDIA, via the MIT nv-codec-headers
 #                              (driver libraries dlopen'ed at runtime)
@@ -146,6 +149,11 @@ RUN set -e; for p in /build/patches/*.patch; do patch -p1 < "$p"; done
 # V4L2 M2M (h264/hevc_v4l2m2m) still auto-enables from kernel headers
 # (linux-libc-dev). Do not add libv4l2-dev — that is for the unrelated
 # --enable-libv4l2 userspace wrapper.
+# --disable-encoder='hevc_*': drops hevc_nvenc, hevc_vaapi, hevc_qsv and
+#   hevc_v4l2m2m (configure matches the glob). Archiverr never encodes
+#   HEVC; its transcodes and Optimize output H.264 and HEVC is only
+#   decoded or copied. The HEVC decoders, including the hardware ones,
+#   stay. The verify stage fails if any HEVC encoder is present (AW-172).
 RUN set -e; \
     QSV_FLAGS=""; [ "$(dpkg --print-architecture)" = "amd64" ] && QSV_FLAGS="--enable-libvpl"; \
     ./configure \
@@ -176,6 +184,7 @@ RUN set -e; \
         --enable-nvdec \
         --enable-nvenc \
         --enable-cuvid \
+        --disable-encoder='hevc_*,libx265,libkvazaar' \
         $QSV_FLAGS \
     && make -j"$(nproc)" \
     && make install
@@ -303,7 +312,8 @@ RUN set -e; \
         -f lavfi -i sine=frequency=440:duration=0.5 \
         -c:v libx264 -c:a aac -f null -; \
     /tree/ffmpeg -hide_banner -loglevel error -f hevc -i /tmp/probe.hevc -f null -; \
-    /tree/ffmpeg -hide_banner -encoders | grep -q libx265 && exit 1 || true; \
+    # Decode-only HEVC (AW-172): no libx265 and no hardware HEVC encoder.
+    /tree/ffmpeg -hide_banner -encoders | grep -iE 'hevc|h\.?265' && exit 1 || true; \
     # VERSION format (separate commands: set -e ignores non-final && failures)
     [ "$(wc -l < /tree/VERSION)" -eq 3 ]; \
     sed -n 2p /tree/VERSION | grep -q '^source=https://github.com/'; \
