@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v2.4.0 — 2026-10-22
+
+Minor release: HEVC decode only, no HEVC encoder of any kind. Same FFmpeg
+source, patches and decode paths as v2.3.0, so decode speed is unchanged
+(no new Pi real-hardware figure needed).
+
 - HEVC is now decode only: the hardware HEVC encoders (`hevc_nvenc`,
   `hevc_vaapi`, `hevc_qsv`, `hevc_v4l2m2m`) are disabled at configure time
   (`--disable-encoder='hevc_*,libx265,libkvazaar'`), so the published image
