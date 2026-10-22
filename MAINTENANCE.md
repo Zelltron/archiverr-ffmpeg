@@ -28,9 +28,9 @@ is the runbook.
 |---|---|---|---|
 | Raspberry Pi 5 | HEVC via `-hwaccel drm` (rpivid); H.264 software | software libx264 (no encode block) | `/dev/video19`, `/dev/media0-2`, `/dev/dri`; groups `video`, `render` |
 | Raspberry Pi 4 | HEVC via `-hwaccel drm`; H.264 software (as on every Pi — no Archiverr path uses `h264_v4l2m2m` for decode) | software libx264 (`h264_v4l2m2m` is compiled in but unused: quality poor) | same as Pi 5 |
-| Intel | VAAPI (`*_vaapi`) and QSV (`*_qsv`): the amd64 image stages the iHD and i965 VA drivers and the oneVPL GPU runtime; Archiverr sets `LIBVA_DRIVERS_PATH` / `ONEVPL_SEARCH_PATH` to the tree and probes both at startup. **Runtime-verified: pending** (no Intel host yet; see Known gaps) | same | `/dev/dri` (uncomment it in the customer compose) |
+| Intel | VAAPI (`*_vaapi`) and QSV (`*_qsv`): the amd64 image stages the iHD and i965 VA drivers and the oneVPL GPU runtime; Archiverr sets `LIBVA_DRIVERS_PATH` / `ONEVPL_SEARCH_PATH` to the tree and probes both at startup. **Runtime-verified: pending** (no Intel host yet; see Known gaps) | `h264_vaapi` / `h264_qsv` (no HEVC encoders are built) | `/dev/dri` (uncomment it in the customer compose) |
 | AMD | VAAPI via Mesa radeonsi — build-time opt-in `VA_DRIVERS=intel,amd` (LLVM, about 135 MB more); otherwise software | same | `/dev/dri` |
-| NVIDIA | nvdec / cuvid — compiled in, needs the NVIDIA container runtime, which no image configures today | nvenc (same) | NVIDIA container runtime (driver libraries) |
+| NVIDIA | nvdec / cuvid — compiled in, needs the NVIDIA container runtime, which no image configures today | nvenc, H.264 only (same) | NVIDIA container runtime (driver libraries) |
 | Anything else | software | software | none |
 
 `/dev/dma_heap` is **not** required for the drm path and, with the default

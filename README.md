@@ -47,8 +47,8 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 |---|---|
 | libx264 | software H.264 encode (transcode, optimize) |
 | `-hwaccel drm` (V4L2 request API, `--enable-v4l2-request --enable-sand`) | Raspberry Pi 4/5 hardware HEVC decode via `rpivid`; needs `/dev/video19`, `/dev/media0-2`, `/dev/dri` |
-| h264/hevc_v4l2m2m | Pi 4 stateful V4L2 M2M codecs (auto-enabled from kernel headers) |
-| VAAPI (`--enable-vaapi`) | Intel / AMD decode and encode via `/dev/dri/renderD128`. amd64 images stage the Intel VA drivers (iHD for Broadwell and newer, i965 for older iGPUs) under `lib/dri/`; AMD's Mesa driver is a build-time opt-in (`VA_DRIVERS=intel,amd`, adds LLVM, about 135 MB) |
+| h264_v4l2m2m / hevc_v4l2m2m | Pi 4 stateful V4L2 M2M codecs (auto-enabled from kernel headers); HEVC is decode only |
+| VAAPI (`--enable-vaapi`) | Intel / AMD decode, and H.264 encode, via `/dev/dri/renderD128`. amd64 images stage the Intel VA drivers (iHD for Broadwell and newer, i965 for older iGPUs) under `lib/dri/`; AMD's Mesa driver is a build-time opt-in (`VA_DRIVERS=intel,amd`, adds LLVM, about 135 MB) |
 | Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL; the oneVPL GPU runtime (`libmfx-gen`) is staged in `lib/` |
 | NVIDIA nvdec / nvenc / cuvid (`--enable-ffnvcodec`) | MIT headers at build time; driver libraries loaded at runtime only when present (see below) |
 | libass + freetype/fontconfig/fribidi/harfbuzz | subtitle burn-in |
@@ -57,6 +57,12 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 | libzvbi | DVB teletext subtitle decode (IPTV streams) |
 | OpenCL (`--enable-opencl`) | GPU filters (e.g. `tonemap_opencl`) on hosts with an ICD |
 | native aac/ac3/dts/... | audio (built into FFmpeg) |
+
+HEVC is decode only. The image contains no HEVC encoder: no `libx265`, and
+the hardware HEVC encoders (`hevc_nvenc`, `hevc_vaapi`, `hevc_qsv`,
+`hevc_v4l2m2m`) are disabled at configure time. Archiverr transcodes to
+H.264 and copies HEVC without re-encoding it. The verify stage fails the
+build if any HEVC encoder appears (codec patents, AW-172).
 
 **Hardware status in this release.** Raspberry Pi 4/5 HEVC decode
 (`-hwaccel drm`) is the hardware path verified on real hardware. VAAPI, QSV
@@ -143,9 +149,10 @@ The published ghcr.io images follow these steps: the release (with
 `org.opencontainers.image.source` label points at this repository.
 
 Note: H.264/HEVC are patent-encumbered codecs. Building and running locally is
-one thing; *distributing* encoder binaries commercially may have patent
-implications independent of copyright, which apply to the published ghcr.io
-images.
+one thing; *distributing* encoder and decoder binaries commercially may have
+patent implications independent of copyright, which apply to the published
+ghcr.io images. To keep that exposure small the images carry no HEVC encoder
+(see "What's inside"); licensing is tracked in AW-172.
 
 ## Security updates
 
