@@ -10,6 +10,10 @@
   unchanged.
 - The build workflow scans `/sbom` with Docker Scout once the repo has
   `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets.
+- The scanner root lists FFmpeg as Debian's trixie revision of the same
+  point release plus `+archiverr` (`FFMPEG_DEBIAN_EQUIV`, bump it with
+  `FFMPEG_VERSION`), so fixes upstream 7.1.5 already carries are not
+  reported as open (CVE-2026-38347, CVE-2026-30997).
 - Staging image base `alpine:3.20` (end of life 2026-04-01) → `alpine:3.24`.
 
 ## v2.4.0 — 2026-10-22

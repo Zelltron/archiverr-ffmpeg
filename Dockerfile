@@ -67,6 +67,9 @@
 ARG FFMPEG_REPO=jc-kynesim/rpi-ffmpeg
 ARG FFMPEG_REF=950ab0323334111e1a4cdc6b037eadfaf0524167
 ARG FFMPEG_VERSION=7.1.5
+# Debian trixie's revision of the same upstream point release; the scanner
+# root (/sbom) lists FFmpeg at this version. Bump with FFMPEG_VERSION.
+ARG FFMPEG_DEBIAN_EQUIV=7:7.1.5-0+deb13u1
 # MIT headers only; the NVIDIA driver libraries are dlopen'ed at runtime.
 # The build checks out NVCODEC_REF (the commit NVCODEC_TAG points at, so a
 # moved tag cannot change the build); NVCODEC_TAG names the release archive
@@ -302,13 +305,20 @@ RUN set -e; \
 #                         against, of every package that owns a staged .so,
 #                         plus the -dev packages FFmpeg may link statically
 #                         (x264, OpenSSL, zlib, zstd, dav1d)
-# FFmpeg is listed as Debian's source package `ffmpeg` at the upstream
-# version this tree builds (epoch 7, as Debian's), so Debian's tracker is
-# the advisory source for it. That is approximate: the fork's own Pi
-# patches are not covered, and a fix Debian backported is matched by
-# version only. It lives outside /tree, so the staging contract (stage.sh)
-# is unchanged; nothing reads it at runtime.
+# FFmpeg is listed as Debian's source package `ffmpeg`, so Debian's tracker
+# is the advisory source for it. Its version is FFMPEG_DEBIAN_EQUIV, the
+# trixie revision that packages the same upstream point release, plus
+# "+archiverr": Debian's first upload of a point release marks every fix
+# that release carries as fixed in that revision, and a bare upstream
+# version (7:7.1.5-0archiverr) sorts below it, which listed CVE-2026-38347
+# and CVE-2026-30997 although n7.1.5 fixes both (checked in this fork's
+# tree). Later Debian backports (+deb13u2 ...) still sort above and are
+# reported. Bump FFMPEG_DEBIAN_EQUIV with FFMPEG_VERSION (see
+# https://tracker.debian.org/pkg/ffmpeg). Approximate either way: the
+# fork's own Pi patches are not covered. It lives outside /tree, so the
+# staging contract (stage.sh) is unchanged; nothing reads it at runtime.
 ARG FFMPEG_VERSION
+ARG FFMPEG_DEBIAN_EQUIV
 RUN set -e; \
     ARCH="$(dpkg --print-architecture)"; \
     mkdir -p /sbom/etc /sbom/var/lib/dpkg; \
@@ -322,8 +332,10 @@ RUN set -e; \
       printf '%s\n' libx264-dev libssl-dev zlib1g-dev libzstd-dev libdav1d-dev; \
     } | sort -u > /tmp/sbom-packages; \
     while read -r pkg; do dpkg-query -s "$pkg"; echo; done < /tmp/sbom-packages > /sbom/var/lib/dpkg/status; \
-    printf 'Package: archiverr-ffmpeg\nStatus: install ok installed\nArchitecture: %s\nSource: ffmpeg (7:%s-0archiverr)\nVersion: 7:%s-0archiverr\nDescription: FFmpeg %s (Raspberry Pi fork) built by archiverr-ffmpeg\n\n' \
-        "$ARCH" "$FFMPEG_VERSION" "$FFMPEG_VERSION" "$FFMPEG_VERSION" >> /sbom/var/lib/dpkg/status; \
+    case "$FFMPEG_DEBIAN_EQUIV" in "7:${FFMPEG_VERSION}-"*) ;; \
+        *) echo "FFMPEG_DEBIAN_EQUIV=$FFMPEG_DEBIAN_EQUIV does not match FFMPEG_VERSION=$FFMPEG_VERSION"; exit 1;; esac; \
+    printf 'Package: archiverr-ffmpeg\nStatus: install ok installed\nArchitecture: %s\nSource: ffmpeg (%s+archiverr)\nVersion: %s+archiverr\nDescription: FFmpeg %s (Raspberry Pi fork) built by archiverr-ffmpeg\n\n' \
+        "$ARCH" "$FFMPEG_DEBIAN_EQUIV" "$FFMPEG_DEBIAN_EQUIV" "$FFMPEG_VERSION" >> /sbom/var/lib/dpkg/status; \
     grep -c '^Package:' /sbom/var/lib/dpkg/status; \
     rm /tmp/sbom-packages
 
