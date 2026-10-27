@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v2.4.1 — 2026-10-27
+
+Patch release: vulnerability scanning. Same FFmpeg source, patches, configure
+flags and decode paths as v2.4.0, so decode speed is unchanged (no new Pi
+real-hardware figure needed). Rebuilt on current Debian trixie packages.
+
 - The image carries `/sbom`, a minimal Debian root (`etc/os-release` and a
   `var/lib/dpkg/status` with the exact packages behind every staged library,
   the statically linkable -dev packages, and FFmpeg as Debian source `ffmpeg`
