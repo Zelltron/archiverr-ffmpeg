@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The image carries `/sbom`, a minimal Debian root (`etc/os-release` and a
+  `var/lib/dpkg/status` with the exact packages behind every staged library,
+  the statically linkable -dev packages, and FFmpeg as Debian source `ffmpeg`
+  at the built version), so Docker Scout can see what the tree ships instead
+  of only the Alpine staging layer. Outside `/tree`; the staging contract is
+  unchanged.
+- The build workflow scans `/sbom` with Docker Scout once the repo has
+  `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets.
+- Staging image base `alpine:3.20` (end of life 2026-04-01) → `alpine:3.24`.
+
 ## v2.4.0 — 2026-10-22
 
 Minor release: HEVC decode only, no HEVC encoder of any kind. Same FFmpeg

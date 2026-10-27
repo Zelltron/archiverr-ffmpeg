@@ -293,6 +293,40 @@ RUN set -e; \
     done; \
     ls /tree/LICENSES
 
+# Scan root for vulnerability scanners (Docker Scout in Archiverr's CI).
+# The staging image is Alpine, so a scan of it sees Alpine's packages and
+# none of what actually runs: the Debian libraries in /tree/lib and FFmpeg
+# itself. /sbom is a minimal Debian root describing exactly those:
+#   etc/os-release        Debian trixie, so advisories match the right distro
+#   var/lib/dpkg/status   the dpkg stanza, with the exact version built
+#                         against, of every package that owns a staged .so,
+#                         plus the -dev packages FFmpeg may link statically
+#                         (x264, OpenSSL, zlib, zstd, dav1d)
+# FFmpeg is listed as Debian's source package `ffmpeg` at the upstream
+# version this tree builds (epoch 7, as Debian's), so Debian's tracker is
+# the advisory source for it. That is approximate: the fork's own Pi
+# patches are not covered, and a fix Debian backported is matched by
+# version only. It lives outside /tree, so the staging contract (stage.sh)
+# is unchanged; nothing reads it at runtime.
+ARG FFMPEG_VERSION
+RUN set -e; \
+    ARCH="$(dpkg --print-architecture)"; \
+    mkdir -p /sbom/etc /sbom/var/lib/dpkg; \
+    cp /etc/os-release /sbom/etc/os-release; \
+    { for so in /tree/lib/*.so* /tree/lib/dri/*.so; do \
+          [ -e "$so" ] || continue; \
+          pkg=$(dpkg -S "$(basename "$so")" 2>/dev/null | head -1 | cut -d: -f1) || true; \
+          [ -n "$pkg" ] && echo "$pkg"; \
+          [ -n "$pkg" ] || echo "unowned: $so" >&2; \
+      done; \
+      printf '%s\n' libx264-dev libssl-dev zlib1g-dev libzstd-dev libdav1d-dev; \
+    } | sort -u > /tmp/sbom-packages; \
+    while read -r pkg; do dpkg-query -s "$pkg"; echo; done < /tmp/sbom-packages > /sbom/var/lib/dpkg/status; \
+    printf 'Package: archiverr-ffmpeg\nStatus: install ok installed\nArchitecture: %s\nSource: ffmpeg (7:%s-0archiverr)\nVersion: 7:%s-0archiverr\nDescription: FFmpeg %s (Raspberry Pi fork) built by archiverr-ffmpeg\n\n' \
+        "$ARCH" "$FFMPEG_VERSION" "$FFMPEG_VERSION" "$FFMPEG_VERSION" >> /sbom/var/lib/dpkg/status; \
+    grep -c '^Package:' /sbom/var/lib/dpkg/status; \
+    rm /tmp/sbom-packages
+
 # ──────────────────────────────────────────────────────────────
 # Stage 2: verify against the REAL consumer base image
 # ──────────────────────────────────────────────────────────────
@@ -333,7 +367,7 @@ RUN set -e; \
 #   /shared/ffmpeg, /shared/ffprobe, /shared/lib/, /shared/VERSION,
 #   /shared/.ready
 # Copying from `verify` (not `build`) forces the verify stage to run.
-FROM alpine:3.20
+FROM alpine:3.24
 
 ARG FFMPEG_VERSION
 ARG FFMPEG_REPO
@@ -351,6 +385,8 @@ LABEL org.opencontainers.image.title="Archiverr ffmpeg-provider" \
       io.archiverr.ffmpeg.source="https://github.com/${FFMPEG_REPO}/tree/${FFMPEG_REF}"
 
 COPY --from=verify /tree /tree
+# Scanner root (see the build stage); not staged, not read at runtime.
+COPY --from=build /sbom /sbom
 COPY stage.sh /stage.sh
 RUN chmod +x /stage.sh
 
