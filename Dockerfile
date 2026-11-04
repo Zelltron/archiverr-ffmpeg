@@ -37,8 +37,9 @@
 #
 # Deliberately NOT included: libbluray (Archiverr never opens BDMV
 # structures), libvpx/libopus/libvorbis/libtheora (only their encoders
-# would add anything — Archiverr encodes h264/hevc/aac/eac3 only; the
-# native decoders already cover playback of those formats).
+# would add anything — Archiverr encodes h264/aac/eac3 only, and HEVC is
+# only decoded or copied; the native decoders already cover playback of
+# those formats).
 #
 # The binaries link their third-party libs dynamically, with
 # RPATH=$ORIGIN/lib: every non-glibc dependency is staged into lib/
