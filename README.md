@@ -75,7 +75,8 @@ stays in software. Every bundled library's licence is in `LICENSES/`, and
 `mirror-sources.sh` collects its source for each release.
 
 Deliberately excluded: libbluray (Archiverr never reads BDMV disc structures),
-libvpx/libopus/libvorbis/libtheora (Archiverr encodes only h264/hevc/aac/eac3),
+libvpx/libopus/libvorbis/libtheora (Archiverr encodes only h264/aac/eac3;
+HEVC is decoded or copied, never encoded),
 libfdk_aac (GPL-incompatible), and anything CUDA-SDK based (`--enable-cuda-nvcc`,
 non-free).
 
