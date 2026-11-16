@@ -38,7 +38,7 @@ precede an accurate `-ss` start before the hwaccel downloads them, so a seek
 that lands several seconds past a source keyframe no longer copies the
 pre-roll to system memory only to discard it. Patches `0003` to `0005` are
 the CUDA filter work from jellyfin-ffmpeg (LGPL-2.1-or-later): a `scale_cuda`
-that also converts pixel formats and bit depth, and `tonemap_cuda`, which
+that dithers when it reduces bit depth, and `tonemap_cuda`, which
 upstream FFmpeg does not have.
 
 ## What's inside

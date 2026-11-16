@@ -298,7 +298,7 @@ RUN set -e; \
     /tree/ffmpeg -hide_banner -filters | grep -qE ' scale_cuda '; \
     /tree/ffmpeg -hide_banner -filters | grep -qE ' tonemap_cuda '; \
     /tree/ffmpeg -hide_banner -filters | grep -qE ' hwupload_cuda '; \
-    # Options Archiverr passes (sdrOutput.ts); they come from patches 0004/0005.
+    # Options Archiverr passes (sdrOutput.ts).
     /tree/ffmpeg -hide_banner -h filter=scale_cuda | grep -q force_divisible_by; \
     /tree/ffmpeg -hide_banner -h filter=tonemap_cuda | grep -q bt2390; \
     /tree/ffmpeg -hide_banner -filters | grep -q unsand; \
