@@ -27,6 +27,13 @@
 #       QSV (libvpl)           Intel Quick Sync, amd64 builds only
 #       NVDEC / NVENC / cuvid  NVIDIA, via the MIT nv-codec-headers
 #                              (driver libraries dlopen'ed at runtime)
+#       scale_cuda / tonemap_cuda  NVIDIA filters that keep decoded frames
+#                              on the GPU: resize, 10-bit to 8-bit and
+#                              HDR to SDR tone mapping between NVDEC and
+#                              NVENC (patches 0003-0005). Their kernels
+#                              are compiled to PTX by clang at build time
+#                              (--enable-cuda-llvm); no NVIDIA SDK, no
+#                              nonfree libnpp.
 #   - libass + freetype/fontconfig/fribidi/harfbuzz  subtitle burn-in
 #   - libdav1d                 fast AV1 software decode
 #   - openssl                  TLS for IPTV https inputs
@@ -97,6 +104,9 @@ ARG NVCODEC_REF
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config curl ca-certificates xz-utils patchelf git patch \
+    # Compiles the CUDA filter kernels (*.cu) to PTX for --enable-cuda-llvm.
+    # Build-time only: nothing from clang or LLVM is linked or staged.
+    clang \
     # GPL codecs (static .a from -dev packages)
     libx264-dev \
     # Subtitle burn-in stack
@@ -150,6 +160,9 @@ RUN set -e; for p in /build/patches/*.patch; do patch -p1 < "$p"; done
 #   the fork's Pi decode path (hevc hwaccel "drm", unsand filter).
 # --enable-vaapi: Intel/AMD. --enable-libvpl: Intel QSV (amd64 only).
 # --enable-ffnvcodec/nvdec/nvenc/cuvid: NVIDIA via MIT headers.
+# --enable-cuda-llvm: the CUDA filters (scale_cuda, tonemap_cuda, ...).
+#   Explicit so a build without clang fails here instead of silently
+#   dropping them (configure only auto-detects it).
 # V4L2 M2M (h264/hevc_v4l2m2m) still auto-enables from kernel headers
 # (linux-libc-dev). Do not add libv4l2-dev — that is for the unrelated
 # --enable-libv4l2 userspace wrapper.
@@ -188,6 +201,7 @@ RUN set -e; \
         --enable-nvdec \
         --enable-nvenc \
         --enable-cuvid \
+        --enable-cuda-llvm \
         --disable-encoder='hevc_*,libx265,libkvazaar' \
         $QSV_FLAGS \
     && make -j"$(nproc)" \
@@ -209,7 +223,8 @@ RUN set -e; \
 # Assemble the self-contained tree: binaries at the root, every non-glibc
 # shared-library dependency in lib/.
 # The hardware-surface greps assert every hardware path (drm, VAAPI,
-# CUDA/NVENC/cuvid, V4L2 M2M, QSV on amd64) plus the teletext, OpenCL
+# CUDA/NVENC/cuvid and the CUDA scale and tone-map filters, V4L2 M2M,
+# QSV on amd64) plus the teletext, OpenCL
 # and unsand features were compiled in — the build fails if any is
 # missing.
 # glibc-family libs are excluded — they must come from the consuming
@@ -280,6 +295,12 @@ RUN set -e; \
     /tree/ffmpeg -hide_banner -encoders | grep -qE ' h264_nvenc '; \
     /tree/ffmpeg -hide_banner -encoders | grep -qE ' h264_vaapi '; \
     /tree/ffmpeg -hide_banner -filters | grep -q tonemap_opencl; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' scale_cuda '; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' tonemap_cuda '; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' hwupload_cuda '; \
+    # Options Archiverr passes (sdrOutput.ts); they come from patches 0004/0005.
+    /tree/ffmpeg -hide_banner -h filter=scale_cuda | grep -q force_divisible_by; \
+    /tree/ffmpeg -hide_banner -h filter=tonemap_cuda | grep -q bt2390; \
     /tree/ffmpeg -hide_banner -filters | grep -q unsand; \
     [ "$ARCH" != "amd64" ] || /tree/ffmpeg -hide_banner -decoders | grep -q hevc_qsv; \
     # Provenance file read by Archiverr at boot
@@ -289,6 +310,12 @@ RUN set -e; \
     head -1 /tree/VERSION | grep -q "^ffmpeg version ${FFMPEG_VERSION}-Archiverr"; \
     cp /build/COPYING.GPLv3 /build/COPYING.GPLv2 /build/LICENSE.md /tree/LICENSES/; \
     cp /usr/share/nv-codec-headers.LICENSE /tree/LICENSES/nv-codec-headers.LICENSE; \
+    # The CUDA filter patches come from jellyfin-ffmpeg; each patch file
+    # starts with its origin and licence. Shipped as the notice for that code.
+    for p in /build/patches/0003-*.patch /build/patches/0004-*.patch /build/patches/0005-*.patch; do \
+        printf '==> %s <==\n' "$(basename "$p")"; sed -n '1,/^$/p' "$p"; \
+    done > /tree/LICENSES/cuda-filter-patches.NOTICE; \
+    grep -q 'jellyfin-ffmpeg' /tree/LICENSES/cuda-filter-patches.NOTICE; \
     for so in /tree/lib/*.so* /tree/lib/dri/*.so; do \
         [ -e "$so" ] || continue; \
         pkg=$(dpkg -S "$(basename "$so")" 2>/dev/null | head -1 | cut -d: -f1) || continue; \

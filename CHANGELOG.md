@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Next minor (v2.5.0): NVIDIA transcodes keep their frames on the GPU (AW-246).
+Same FFmpeg source and decode paths; three new patches, one new configure
+flag. Nothing changes on the Raspberry Pi (no CUDA device), so no new Pi
+real-hardware figure is needed.
+
+- `scale_cuda` and `tonemap_cuda` are built in (`--enable-cuda-llvm`; clang
+  in the build stage compiles the kernels, nothing from it is staged).
+  `patches/0003` to `0005` are jellyfin-ffmpeg's CUDA header update, enhanced
+  `scale_cuda` (pixel format and bit depth conversion with dithering,
+  `force_original_aspect_ratio`, `force_divisible_by`) and `tonemap_cuda`
+  (BT.2390 HDR to SDR), LGPL-2.1-or-later, code unchanged. Their notice is
+  staged as `LICENSES/cuda-filter-patches.NOTICE`.
+- The build fails if either filter, or the options Archiverr passes, is
+  missing.
+- Needs an Archiverr build that uses the filters (the AW-246 PR); older
+  Archiverr builds ignore them and behave as with v2.4.1.
+
 ## v2.4.1 — 2026-10-27
 
 Patch release: vulnerability scanning. Same FFmpeg source, patches, configure
