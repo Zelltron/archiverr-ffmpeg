@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Next minor (v2.5.0): NVIDIA transcodes keep their frames on the GPU (AW-246).
+## v2.5.0 — 2026-11-16
+
+Minor release: NVIDIA transcodes keep their frames on the GPU (AW-246).
 Same FFmpeg source and decode paths; three new patches, one new configure
 flag. Nothing changes on the Raspberry Pi (no CUDA device), so no new Pi
 real-hardware figure is needed.
