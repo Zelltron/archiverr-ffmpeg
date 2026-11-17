@@ -21,7 +21,7 @@ is the runbook.
 |---|---|---|
 | `patches/0001-v4l2-request-dma-heap-opt-in.patch` | Makes the V4L2 request-API decoder's dma-heap frame pools opt-in behind `ARCHIVERR_V4L2_DMAHEAP=1`. On stock Raspberry Pi kernels the CMA heap (320 MB measured on this Pi 5) is too small for 4K HEVC pools and dma-heap allocation fails with ENOMEM; the driver's own MMap buffers work at full speed instead. Default (unset/`0`) uses MMap; set the env var to opt back into dma-heap. | Applied by the Dockerfile with `patch -p1` before `configure`. Every fork pin bump (see "Bumping the fork pin" below) must re-check this patch still applies cleanly against `libavcodec/v4l2_req_dmabufs.c` — the hunk targets `ctl_cma_new2()`; if that function moves or changes shape upstream, regenerate the patch rather than force-applying with fuzz. |
 | `patches/0002-fftools-skip-hw-preroll-before-seek.patch` | With `-ss` before `-i` (accurate seek), ffmpeg decodes from the previous keyframe and drops the pre-roll frames in a `trim` filter, after the hwaccel has already copied each frame to system memory. On a Pi 5 that copy dominates 4K HEVC decode (about 50 fps with it, 130 fps without), so a seek that lands 8 s after a keyframe spent 4.5 s on frames nobody sees. The patch gives the decoder the same start the trim filter gets and drops hardware frames before the download; software decode and the trim filter are untouched, so output is identical. | Applied by the Dockerfile with `patch -p1` before `configure`. Touches only `fftools/` (`ffmpeg.h` `DecoderOpts`, `ffmpeg_dec.c` `video_frame_process()` / `dec_open()` / `dec_standalone_open()`, `ffmpeg_demux.c` `ist_use()`); on a fork bump re-check that `ist_filter_add()` still computes `trim_start_us` the same way (the patch mirrors it) and that `video_frame_process()` still calls `hwaccel_retrieve_data()` first. Regenerate rather than fuzz. |
-| `patches/0003-cuda-update-func-header.patch`, `patches/0004-cuda-scale-pixfmt-converter.patch`, `patches/0005-cuda-tonemap-filter.patch` | NVIDIA transcodes of 4K HDR sources decoded on the GPU, then copied every frame to system memory to scale and tone map on the CPU (about 12 cores per stream on the owner PC, 6 streams against Plex's 12; AW-246). Upstream `scale_cuda` drops 10-bit to 8-bit without dithering (banding) and upstream has no CUDA tone mapper. These three patches are jellyfin-ffmpeg's `0002-update-cuda-func-header`, `0003-add-enhanced-cuda-pixfmt-converter-impl` and `0004-add-cuda-tonemap-impl` from its `v7.1.3-5` tag (LGPL-2.1-or-later), regenerated against the fork tree with the code unchanged: math intrinsics for the CUDA kernels, dithering when `scale_cuda` reduces bit depth, and the `tonemap_cuda` filter (BT.2390, PQ and HLG to BT.709). Built with `--enable-cuda-llvm` (clang in the build stage compiles the `.cu` kernels to PTX; nothing from clang is staged). Archiverr proves the chain at boot and keeps its CPU chain when the proof fails. | Applied by the Dockerfile with `patch -p1` before `configure`. They touch `configure` (filter deps, clang flags), `ffbuild/common.mak`, `libavfilter/Makefile`, `allfilters.c`, `colorspace.[ch]`, `vf_scale_cuda.*`, `compat/cuda/cuda_runtime.h` and add `libavfilter/cuda/*` and `vf_tonemap_cuda.c`. On a fork bump within 7.1, regenerate against the new tree (apply jellyfin-ffmpeg's patch with `patch -p1 -F0`, then `git diff`), never fuzz. On a new FFmpeg major take the three patches from the jellyfin-ffmpeg tag of that major. The build-stage assertions fail if `scale_cuda`, `tonemap_cuda`, `force_divisible_by` or `bt2390` are missing. Re-run the NVIDIA check under "Known gaps" on real hardware. |
+| `patches/0003-cuda-update-func-header.patch`, `patches/0004-cuda-scale-pixfmt-converter.patch`, `patches/0005-cuda-tonemap-filter.patch` | NVIDIA transcodes of 4K HDR sources decoded on the GPU, then copied every frame to system memory to scale and tone map on the CPU (about 12 cores per stream on the owner PC, 6 streams against Plex's 12; AW-246). Upstream `scale_cuda` drops 10-bit to 8-bit without dithering (banding) and upstream has no CUDA tone mapper. These three patches are jellyfin-ffmpeg's `0002-update-cuda-func-header`, `0003-add-enhanced-cuda-pixfmt-converter-impl` and `0004-add-cuda-tonemap-impl` from its `v7.1.3-5` tag (LGPL-2.1-or-later), regenerated against the fork tree with the code unchanged: math intrinsics for the CUDA kernels, dithering when `scale_cuda` reduces bit depth, and the `tonemap_cuda` filter (BT.2390, PQ and HLG to BT.709). Built with `--enable-cuda-llvm` (clang in the build stage compiles the `.cu` kernels to PTX; nothing from clang is staged). Archiverr proves the chain at boot and keeps its CPU chain when the proof fails. | Applied by the Dockerfile with `patch -p1` before `configure`. They touch `configure` (filter deps, clang flags), `ffbuild/common.mak`, `libavfilter/Makefile`, `allfilters.c`, `colorspace.[ch]`, `vf_scale_cuda.*`, `compat/cuda/cuda_runtime.h` and add `libavfilter/cuda/*` and `vf_tonemap_cuda.c`. On a fork bump within 7.1, regenerate against the new tree (apply jellyfin-ffmpeg's patch with `patch -p1 -F0`, then `git diff`), never fuzz. On a new FFmpeg major take the three patches from the jellyfin-ffmpeg tag of that major. The build-stage assertions fail if `scale_cuda`, `tonemap_cuda`, `force_divisible_by` or `bt2390` are missing. Re-run the check under "NVIDIA filters: what real hardware showed". |
 
 ## Hardware matrix
 
@@ -57,6 +57,26 @@ libva and libvpl dlopen these by name, so Archiverr must point
 `<tree>/lib` (it does, from `constants.ts`, when the directory exists). CI
 builds both variants on every push. Bumping the fork or Debian base: re-check
 the `ldd` assertions on `lib/dri/*.so` still resolve inside the tree.
+
+## NVIDIA filters: what real hardware showed (v2.5.0, RTX 3080)
+
+- The first use of `scale_cuda` or `tonemap_cuda` after a driver or image
+  change compiles its kernels: about 3 s per filter before the first frame.
+  The NVIDIA driver caches the result (`CUDA_CACHE_PATH`, default
+  `$HOME/.nv/ComputeCache`). Archiverr points that at its data volume and
+  runs both filters in its boot probe, so viewers never pay it. Any other
+  consumer of this tree should do the same.
+- Each 4K session holds about 1.06 GB of GPU memory (0.9 GB when frames are
+  downloaded instead). A 10 GB card runs out at 9 concurrent 4K streams;
+  ffmpeg then logs `CUDA_ERROR_OUT_OF_MEMORY` and can still exit 0 after a
+  few frames.
+- `tonemap_cuda` takes 10-bit input only ("Unsupported input format depth:
+  8"). 8-bit video tagged PQ must be tone mapped on the CPU.
+- A source NVDEC cannot decode (H.264 Hi10P) arrives as system frames and
+  `scale_cuda` fails the run with exit 218; the caller needs a CPU fallback.
+- Re-run this check on real hardware after a fork bump or a new FFmpeg
+  major: both boot-probe commands, one 4K HDR10 title for `speed=` and CPU
+  cores, and an SSIM against the CPU chain.
 
 ## Known gaps
 

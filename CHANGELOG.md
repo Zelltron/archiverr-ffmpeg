@@ -15,6 +15,11 @@ real-hardware figure is needed.
   staged as `LICENSES/cuda-filter-patches.NOTICE`.
 - The build fails if either filter, or the options Archiverr passes, is
   missing.
+- Real hardware (RTX 3080, driver 595.99, 4K HEVC HDR10 3840x1600 to 1080p
+  `h264_nvenc`, 300 s to null): `speed=22.3x` at 0.23 CPU cores with frames
+  kept on the GPU, against `speed=9.06x` at 12.5 cores with the download and
+  CPU filters. Eight streams at once hold 2.42x each on half a core in total;
+  NVDEC is the limit. Picture against the CPU LUT: SSIM 0.993, PSNR 46 dB.
 - Needs an Archiverr build that uses the filters (the AW-246 PR); older
   Archiverr builds ignore them and behave as with v2.4.1.
 
