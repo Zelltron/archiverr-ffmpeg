@@ -36,7 +36,10 @@ enable); using mmap buffers` and uses the driver's MMap buffers, which every
 `0002-fftools-skip-hw-preroll-before-seek.patch` drops hardware frames that
 precede an accurate `-ss` start before the hwaccel downloads them, so a seek
 that lands several seconds past a source keyframe no longer copies the
-pre-roll to system memory only to discard it.
+pre-roll to system memory only to discard it. Patches `0003` to `0005` are
+the CUDA filter work from jellyfin-ffmpeg (LGPL-2.1-or-later): a `scale_cuda`
+that dithers when it reduces bit depth, and `tonemap_cuda`, which
+upstream FFmpeg does not have.
 
 ## What's inside
 
@@ -51,6 +54,7 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 | VAAPI (`--enable-vaapi`) | Intel / AMD decode, and H.264 encode, via `/dev/dri/renderD128`. amd64 images stage the Intel VA drivers (iHD for Broadwell and newer, i965 for older iGPUs) under `lib/dri/`; AMD's Mesa driver is a build-time opt-in (`VA_DRIVERS=intel,amd`, adds LLVM, about 135 MB) |
 | Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL; the oneVPL GPU runtime (`libmfx-gen`) is staged in `lib/` |
 | NVIDIA nvdec / nvenc / cuvid (`--enable-ffnvcodec`) | MIT headers at build time; driver libraries loaded at runtime only when present (see below) |
+| NVIDIA `scale_cuda` / `tonemap_cuda` (`--enable-cuda-llvm`, patches 0003-0005) | resize, 10-bit to 8-bit and HDR to SDR tone mapping on the GPU, so a transcode's frames never leave it between NVDEC and NVENC. Kernels are compiled to PTX by clang at build time; no NVIDIA SDK |
 | libass + freetype/fontconfig/fribidi/harfbuzz | subtitle burn-in |
 | libdav1d | fast AV1 software decode |
 | openssl (`--enable-version3`) | TLS for IPTV https inputs |
@@ -78,7 +82,8 @@ Deliberately excluded: libbluray (Archiverr never reads BDMV disc structures),
 libvpx/libopus/libvorbis/libtheora (Archiverr encodes only h264/aac/eac3;
 HEVC is decoded or copied, never encoded),
 libfdk_aac (GPL-incompatible), and anything CUDA-SDK based (`--enable-cuda-nvcc`,
-non-free).
+`libnpp`: non-free). The CUDA filters that are built use `--enable-cuda-llvm`,
+which needs only clang and the MIT headers.
 
 The binaries are dynamically linked with `RPATH=$ORIGIN/lib` (old-style
 `DT_RPATH`, so it covers transitive deps); every non-glibc `.so` is staged into
