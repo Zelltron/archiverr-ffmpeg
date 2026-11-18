@@ -23,7 +23,9 @@
 #                              the `unsand` sand→planar filter
 #       h264_v4l2m2m / hevc_v4l2m2m  V4L2 stateful M2M codecs
 #                              (HEVC decode only; see below)
-#       VAAPI                  Intel/AMD decode + H.264 encode
+#       VAAPI                  Intel/AMD decode + H.264 encode, and the
+#                              scale_vaapi / tonemap_vaapi filters that
+#                              keep frames on the GPU in between
 #       QSV (libvpl)           Intel Quick Sync, amd64 builds only
 #       NVDEC / NVENC / cuvid  NVIDIA, via the MIT nv-codec-headers
 #                              (driver libraries dlopen'ed at runtime)
@@ -302,7 +304,23 @@ RUN set -e; \
     /tree/ffmpeg -hide_banner -h filter=scale_cuda | grep -q force_divisible_by; \
     /tree/ffmpeg -hide_banner -h filter=tonemap_cuda | grep -q bt2390; \
     /tree/ffmpeg -hide_banner -filters | grep -q unsand; \
+    # Intel / AMD GPU chain (Archiverr vaapiFilters.ts): VA-API decode,
+    # scale_vaapi, tonemap_vaapi, then h264_vaapi, or h264_qsv through hwmap;
+    # hwupload feeds h264_vaapi from a CPU filter chain. With the options
+    # Archiverr passes.
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' scale_vaapi '; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' tonemap_vaapi '; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' hwmap '; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' hwupload '; \
+    /tree/ffmpeg -hide_banner -h filter=scale_vaapi | grep -q force_original_aspect_ratio; \
+    /tree/ffmpeg -hide_banner -h filter=scale_vaapi | grep -q force_divisible_by; \
+    /tree/ffmpeg -hide_banner -h filter=tonemap_vaapi | grep -qE '^ +p +<string>'; \
+    /tree/ffmpeg -hide_banner -h filter=tonemap_vaapi | grep -qE '^ +t +<string>'; \
+    /tree/ffmpeg -hide_banner -h filter=tonemap_vaapi | grep -qE '^ +m +<string>'; \
+    /tree/ffmpeg -hide_banner -h filter=hwmap | grep -q derive_device; \
     [ "$ARCH" != "amd64" ] || /tree/ffmpeg -hide_banner -decoders | grep -q hevc_qsv; \
+    [ "$ARCH" != "amd64" ] || /tree/ffmpeg -hide_banner -encoders | grep -qE ' h264_qsv '; \
+    [ "$ARCH" != "amd64" ] || /tree/ffmpeg -hide_banner -h encoder=h264_qsv | grep -q forced_idr; \
     # Provenance file read by Archiverr at boot
     printf '%s\nsource=https://github.com/%s/tree/%s\nrevision=%s\n' \
         "$(/tree/ffmpeg -version | head -1)" "$FFMPEG_REPO" "$FFMPEG_REF" "$GIT_COMMIT" > /tree/VERSION; \
@@ -375,8 +393,10 @@ RUN set -e; \
 FROM node:20-trixie-slim AS verify
 
 COPY --from=build /tree /tree
-# Same clip Archiverr's hardware probe decodes (hevcProbeClip.ts).
-COPY test/probe.hevc /tmp/probe.hevc
+# Same clips Archiverr's hardware probes decode (hevcProbeClip.ts): the
+# 8-bit one, and the HDR10 one whose mastering-display metadata the
+# tonemap_vaapi proof depends on.
+COPY test/probe.hevc test/probe-hdr10.hevc /tmp/
 RUN set -e; \
     ldd /tree/ffmpeg | grep 'not found' && exit 1 || true; \
     /tree/ffmpeg -version; \
@@ -386,6 +406,11 @@ RUN set -e; \
         -f lavfi -i sine=frequency=440:duration=0.5 \
         -c:v libx264 -c:a aac -f null -; \
     /tree/ffmpeg -hide_banner -loglevel error -f hevc -i /tmp/probe.hevc -f null -; \
+    /tree/ffmpeg -hide_banner -loglevel error -f hevc -i /tmp/probe-hdr10.hevc -f null -; \
+    /tree/ffprobe -v error -f hevc -read_intervals '%+#1' -show_frames /tmp/probe-hdr10.hevc > /tmp/hdr10.txt; \
+    grep -q '^pix_fmt=yuv420p10le' /tmp/hdr10.txt; \
+    grep -q '^color_transfer=smpte2084' /tmp/hdr10.txt; \
+    grep -q 'Mastering display metadata' /tmp/hdr10.txt; \
     # Decode-only HEVC (AW-172): no libx265 and no hardware HEVC encoder.
     /tree/ffmpeg -hide_banner -encoders | grep -iE 'hevc|h\.?265' && exit 1 || true; \
     # VERSION format (separate commands: set -e ignores non-final && failures)

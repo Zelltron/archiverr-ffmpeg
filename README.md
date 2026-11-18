@@ -51,7 +51,7 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 | libx264 | software H.264 encode (transcode, optimize) |
 | `-hwaccel drm` (V4L2 request API, `--enable-v4l2-request --enable-sand`) | Raspberry Pi 4/5 hardware HEVC decode via `rpivid`; needs `/dev/video19`, `/dev/media0-2`, `/dev/dri` |
 | h264_v4l2m2m / hevc_v4l2m2m | Pi 4 stateful V4L2 M2M codecs (auto-enabled from kernel headers); HEVC is decode only |
-| VAAPI (`--enable-vaapi`) | Intel / AMD decode, and H.264 encode, via `/dev/dri/renderD128`. amd64 images stage the Intel VA drivers (iHD for Broadwell and newer, i965 for older iGPUs) under `lib/dri/`; AMD's Mesa driver is a build-time opt-in (`VA_DRIVERS=intel,amd`, adds LLVM, about 135 MB) |
+| VAAPI (`--enable-vaapi`) | Intel / AMD decode, and H.264 encode, via `/dev/dri/renderD128`. amd64 images stage the Intel VA drivers (iHD for Broadwell and newer, i965 for older iGPUs) under `lib/dri/`; the published image also stages AMD's Mesa `radeonsi` driver (`VA_DRIVERS=intel,amd`, adds LLVM, about 135 MB). `scale_vaapi` and `tonemap_vaapi` keep a transcode's frames on the GPU between decode and encode (`hwmap` hands them to `h264_qsv` where only Quick Sync encodes) |
 | Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL; the oneVPL GPU runtime (`libmfx-gen`) is staged in `lib/` |
 | NVIDIA nvdec / nvenc / cuvid (`--enable-ffnvcodec`) | MIT headers at build time; driver libraries loaded at runtime only when present (see below) |
 | NVIDIA `scale_cuda` / `tonemap_cuda` (`--enable-cuda-llvm`, patches 0003-0005) | resize, 10-bit to 8-bit and HDR to SDR tone mapping on the GPU, so a transcode's frames never leave it between NVDEC and NVENC. Kernels are compiled to PTX by clang at build time; no NVIDIA SDK |
@@ -69,10 +69,12 @@ H.264 and copies HEVC without re-encoding it. The verify stage fails the
 build if any HEVC encoder appears (codec patents, AW-172).
 
 **Hardware status in this release.** Raspberry Pi 4/5 HEVC decode
-(`-hwaccel drm`) is the hardware path verified on real hardware. VAAPI, QSV
-and NVIDIA are compiled in and Archiverr probes each at startup. On amd64
-the staged tree carries VA drivers in `lib/dri/` (Intel `iHD` and `i965` by
-default, plus Mesa's `radeonsi` with `VA_DRIVERS=intel,amd`) and the oneVPL
+(`-hwaccel drm`) and NVIDIA (RTX 3080) are verified on real hardware. VAAPI
+and QSV (Intel, AMD) are compiled in and Archiverr proves each at startup,
+but they have not been run on real Intel or AMD hardware yet. On amd64
+the staged tree carries VA drivers in `lib/dri/` (Intel `iHD` and `i965`,
+plus Mesa's `radeonsi` with `VA_DRIVERS=intel,amd`, which the published
+image uses) and the oneVPL
 GPU runtime; NVIDIA still needs the NVIDIA container runtime from the host.
 Paths whose hardware or driver is missing disable themselves and transcoding
 stays in software. Every bundled library's licence is in `LICENSES/`, and
@@ -111,12 +113,12 @@ or `none`. arm64 builds stage no drivers whatever the value. Archiverr's
 compose files pass it through as `FFMPEG_VA_DRIVERS`.
 
 Each release is also published as a multi-arch image (amd64 with
-`VA_DRIVERS=intel`, arm64), `ghcr.io/zelltron/archiverr-ffmpeg:<tag>`, by
+`VA_DRIVERS=intel,amd`, arm64), `ghcr.io/zelltron/archiverr-ffmpeg:<tag>`, by
 `.github/workflows/publish.yml`, so installs (NAS app stores in particular)
 can pull it instead of compiling FFmpeg. The workflow runs when a GitHub
 release is published, and refuses to push unless the release already
 carries the corresponding source (see below). Building locally from this
-repo stays supported, and is the way to get `intel,amd` or `none`. Native
+repo stays supported, and is the way to get `intel` alone or `none`. Native
 arm64 builds on a Pi 5 take 30-40 minutes.
 
 ## Licensing

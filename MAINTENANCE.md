@@ -29,8 +29,8 @@ is the runbook.
 |---|---|---|---|
 | Raspberry Pi 5 | HEVC via `-hwaccel drm` (rpivid); H.264 software | software libx264 (no encode block) | `/dev/video19`, `/dev/media0-2`, `/dev/dri`; groups `video`, `render` |
 | Raspberry Pi 4 | HEVC via `-hwaccel drm`; H.264 software (as on every Pi — no Archiverr path uses `h264_v4l2m2m` for decode) | software libx264 (`h264_v4l2m2m` is compiled in but unused: quality poor) | same as Pi 5 |
-| Intel | VAAPI (`*_vaapi`) and QSV (`*_qsv`): the amd64 image stages the iHD and i965 VA drivers and the oneVPL GPU runtime; Archiverr sets `LIBVA_DRIVERS_PATH` / `ONEVPL_SEARCH_PATH` to the tree and probes both at startup. **Runtime-verified: pending** (no Intel host yet; see Known gaps) | `h264_vaapi` / `h264_qsv` (no HEVC encoders are built) | `/dev/dri` (uncomment it in the customer compose) |
-| AMD | VAAPI via Mesa radeonsi — build-time opt-in `VA_DRIVERS=intel,amd` (LLVM, about 135 MB more); otherwise software | same | `/dev/dri` |
+| Intel | VAAPI (`*_vaapi`) and QSV (`*_qsv`): the amd64 image stages the iHD and i965 VA drivers and the oneVPL GPU runtime; Archiverr sets `LIBVA_DRIVERS_PATH` / `ONEVPL_SEARCH_PATH` to the tree and probes both at startup. Frames stay on the GPU through `scale_vaapi` and `tonemap_vaapi` (HDR10) when Archiverr's boot proof of that chain passes, otherwise they are filtered on the CPU. **Runtime-verified: pending** (no Intel host yet; see Known gaps) | `h264_vaapi`, or `h264_qsv` fed through `hwmap=derive_device=qsv` (no HEVC encoders are built) | `/dev/dri` (uncomment it in the customer compose) |
+| AMD | VAAPI via Mesa radeonsi, same filters as Intel. The published image stages the driver from v2.6.0 (`VA_DRIVERS=intel,amd`: LLVM, about 135 MB more); a local build defaults to `intel`. **Runtime-verified: pending** (no AMD host yet) | `h264_vaapi` (AMF is not built, see "Hardware not covered") | `/dev/dri` |
 | NVIDIA | nvdec / cuvid; frames stay on the GPU through `scale_cuda` and `tonemap_cuda` when Archiverr's boot proof of that chain passes, otherwise they are downloaded and filtered on the CPU. Needs the NVIDIA container runtime (`docker-compose.nvidia.yml` in Archiverr) | nvenc, H.264 only (same) | NVIDIA container runtime (driver libraries, including `libcuda` for the filters) |
 | Anything else | software | software | none |
 
@@ -43,11 +43,29 @@ enough on that host.
 Archiverr's `hardware.ts` probes each path at boot (it never trusts the
 compiled-in list alone): NVENC with a real encode, `drm` and VAAPI decode
 of the HEVC clip bundled with Archiverr (`hevcProbeClip.ts`; no encode), VAAPI and QSV encode with a one-frame
-`h264_vaapi` / `h264_qsv` encode. A failed probe means the software path, never an error.
+`h264_vaapi` / `h264_qsv` encode, and the VA-API filter chain with three
+real runs (8-bit scale, 10-bit scale, HDR10 tone map of the bundled
+`hevcProbeClip.ts` HDR clip, the same bytes as `test/probe-hdr10.hevc` here).
+A failed probe means the software path, never an error.
+
+### Hardware not covered
+
+- **AMD AMF** (`h264_amf`): needs AMD's proprietary AMF runtime on Linux,
+  which no image can ship. AMD GPUs use VAAPI through Mesa instead.
+- **Apple VideoToolbox**: macOS frameworks only. A Linux container on a Mac
+  (Docker Desktop) has no GPU access, so the sidecar cannot offer it;
+  Archiverr still uses `h264_videotoolbox` when it runs natively on macOS
+  with a host ffmpeg that has it.
+- **Rockchip (rkmpp), Amlogic, Jetson (nvmpi/V4L2 NVMM)**: each needs a
+  vendor fork or patch set on top of the Raspberry Pi fork. Those hosts run
+  the software path. Adding one is its own release with its own hardware.
+- **Raspberry Pi encode**: the Pi 5 has no encoder block; the Pi 4's
+  `h264_v4l2m2m` stays unused (quality).
 
 ## VA drivers (amd64)
 
-`ARG VA_DRIVERS` (default `intel`) installs the driver packages *after* the
+`ARG VA_DRIVERS` (default `intel`; `publish.yml` passes `intel,amd` for the
+released image) installs the driver packages *after* the
 FFmpeg compile and stages them into the tree: `lib/dri/<name>_drv_video.so`
 with an `$ORIGIN/..` rpath (their dependency closure lands in `lib/`) and
 `lib/libmfx-gen.so.1.2` for QSV. `DRIVERS` next to `VERSION` lists what was
@@ -71,7 +89,8 @@ the `ldd` assertions on `lib/dri/*.so` still resolve inside the tree.
   ffmpeg then logs `CUDA_ERROR_OUT_OF_MEMORY` and can still exit 0 after a
   few frames.
 - `tonemap_cuda` takes 10-bit input only ("Unsupported input format depth:
-  8"). 8-bit video tagged PQ must be tone mapped on the CPU.
+  8"). 8-bit video tagged PQ is first widened on the GPU
+  (`scale_cuda=format=p010le`), then tone mapped.
 - A source NVDEC cannot decode (H.264 Hi10P) arrives as system frames and
   `scale_cuda` fails the run with exit 218; the caller needs a CPU fallback.
 - Re-run this check on real hardware after a fork bump or a new FFmpeg
@@ -80,9 +99,13 @@ the `ldd` assertions on `lib/dri/*.so` still resolve inside the tree.
 
 ## Known gaps
 
-- **Intel VAAPI/QSV are staged but not runtime-verified.** No Intel host with
-  an iGPU has run the tree yet; CI proves the drivers build, stage and
-  resolve, not that they decode. Tracked as a separate Archiverr ticket (AW:
+- **Intel and AMD VAAPI/QSV are staged but not runtime-verified.** No Intel
+  or AMD GPU host has run the tree yet; CI proves the drivers build, stage
+  and resolve and that `scale_vaapi`, `tonemap_vaapi`, `hwmap` and `hwupload`
+  exist with the options Archiverr passes, not that they decode or filter.
+  First run on real hardware: check the boot log lines `[Player] VA-API
+  device:` and `[Player] Intel|AMD GPU filters:`, play one 4K HDR10 title
+  and note `speed=` and CPU use, as for NVIDIA above. Tracked as a separate Archiverr ticket (AW:
   "verify bundled Intel VA drivers on real hardware"). Until then the
   Archiverr docs say "bundled, verification pending".
 
