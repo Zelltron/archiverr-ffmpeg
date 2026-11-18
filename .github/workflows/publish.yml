@@ -8,8 +8,9 @@ name: publish
 # MAINTENANCE.md "Release checklist"). The release is the trigger, and the job
 # refuses to push if the release has no assets.
 #
-# amd64 ships VA_DRIVERS=intel (the compose default). intel,amd and none stay
-# local-build options.
+# amd64 ships VA_DRIVERS=intel,amd, so Intel and AMD GPUs both work from the
+# published image (about 135 MB more than intel alone, for Mesa and LLVM).
+# intel and none stay local-build options.
 on:
   release:
     types: [published]
@@ -72,7 +73,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             GIT_COMMIT=${{ env.TAG }}
-            VA_DRIVERS=intel
+            VA_DRIVERS=intel,amd
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
       - name: Export digest
         run: |

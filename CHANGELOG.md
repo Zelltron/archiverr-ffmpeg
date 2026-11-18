@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+Planned as v2.6.0: Intel and AMD GPUs from the published image. Same FFmpeg
+source, patches and configure flags, so decode speed is unchanged (no new Pi
+real-hardware figure needed). Nothing in this entry has run on real Intel or
+AMD hardware: CI proves the filters are built and the drivers stage and
+resolve, and Archiverr proves each chain on the host at startup.
+
+- The published amd64 image is built with `VA_DRIVERS=intel,amd`: Mesa's
+  `radeonsi` VA driver is staged beside the Intel ones, so an AMD GPU works
+  without a local build. About 135 MB more (Mesa and LLVM). Local builds
+  still default to `intel`.
+- Build-stage assertions for the Intel/AMD GPU chain Archiverr now uses:
+  `scale_vaapi` (with `force_original_aspect_ratio` and
+  `force_divisible_by`), `tonemap_vaapi` (`p`, `t`, `m`), `hwmap`
+  (`derive_device`), `hwupload`, and on amd64 the `h264_qsv` encoder with
+  `forced_idr`. All of them were already compiled in; a build that loses one
+  now fails.
+- The verify stage decodes `test/probe-hdr10.hevc`, the HDR10 clip Archiverr
+  bundles for its `tonemap_vaapi` proof, and checks it still reports Main 10,
+  PQ and mastering-display metadata.
+- The Docker Scout scan in CI runs on the `intel,amd` build, the variant
+  that ships.
+- Needs an Archiverr build with the Intel/AMD GPU chain to use the filters;
+  older builds behave as with v2.5.0. Archiverr's `docker-compose.yml`,
+  `docker-compose.customer.yml` and `docker-compose.truenas.yml` need the new
+  tag once it is released.
+
 ## v2.5.0 — 2026-11-16
 
 Minor release: NVIDIA transcodes keep their frames on the GPU (AW-246).
