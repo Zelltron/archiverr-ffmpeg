@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Planned as v2.6.0: Intel and AMD GPUs from the published image. Same FFmpeg
+## v2.6.0 — 2026-11-17
+
+Minor release: Intel and AMD GPUs from the published image. Same FFmpeg
 source, patches and configure flags, so decode speed is unchanged (no new Pi
 real-hardware figure needed). Nothing in this entry has run on real Intel or
 AMD hardware: CI proves the filters are built and the drivers stage and
