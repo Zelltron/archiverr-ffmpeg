@@ -40,6 +40,10 @@ pre-roll to system memory only to discard it. Patches `0003` to `0005` are
 the CUDA filter work from jellyfin-ffmpeg (LGPL-2.1-or-later): a `scale_cuda`
 that dithers when it reduces bit depth, and `tonemap_cuda`, which
 upstream FFmpeg does not have.
+`0006-dovi-reshape-filter.patch` is ours: a CPU filter,
+`dovi_reshape`, that applies the per-scene reshaping curves of a Dolby Vision
+RPU, which Archiverr needs to convert profile 5 (no HDR10 base layer) to SDR
+with the right brightness and saturation.
 
 ## What's inside
 
@@ -55,6 +59,7 @@ Version string `7.1.5-Archiverr` (`ARG FFMPEG_VERSION`, source pinned by
 | Intel QSV (`--enable-libvpl`, amd64 only) | Intel media SDK path through oneVPL; the oneVPL GPU runtime (`libmfx-gen`) is staged in `lib/` |
 | NVIDIA nvdec / nvenc / cuvid (`--enable-ffnvcodec`) | MIT headers at build time; driver libraries loaded at runtime only when present (see below) |
 | NVIDIA `scale_cuda` / `tonemap_cuda` (`--enable-cuda-llvm`, patches 0003-0005) | resize, 10-bit to 8-bit and HDR to SDR tone mapping on the GPU, so a transcode's frames never leave it between NVDEC and NVENC. Kernels are compiled to PTX by clang at build time; no NVIDIA SDK |
+| `dovi_reshape` (patch 0006) + `extractplanes` / `mergeplanes` / `lut3d` | Dolby Vision profile 5 to SDR on the CPU: the RPU's reshaping, then Archiverr's IPT-PQ-c2 to BT.709 table |
 | libass + freetype/fontconfig/fribidi/harfbuzz | subtitle burn-in |
 | libdav1d | fast AV1 software decode |
 | openssl (`--enable-version3`) | TLS for IPTV https inputs |

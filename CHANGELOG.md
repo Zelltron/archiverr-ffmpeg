@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+Planned as v2.7.0 (minor): one new patch, same FFmpeg source, configure
+flags and decode paths, so decode speed is unchanged (no new Pi
+real-hardware figure needed for decode; the new filter's cost on a Pi is not
+measured yet).
+
+- New `dovi_reshape` video filter (patch 0006, AW-279): applies the
+  reshaping curves of a Dolby Vision RPU on the CPU. Dolby Vision profile 5
+  has no HDR10 base layer, and FFmpeg could only undo its per-scene
+  reshaping through `libplacebo` (Vulkan). Archiverr uses the filter in its
+  H.264 transcode, previews and trick-play of profile 5 titles, so they get
+  correct colours on clients that do not play Dolby Vision.
+- Build-stage assertions for that chain: `dovi_reshape`, `extractplanes`,
+  `lut3d` and `mergeplanes` with its `mapNs` options. The verify stage runs
+  the chain on the HDR10 probe clip (no RPU, so a pass-through).
+- Checked against libplacebo on Dolby's profile 5 test stream (mean
+  difference 0.002 of the PQ signal); MMR chroma mapping is implemented but
+  has not met a sample. See MAINTENANCE.md, "Dolby Vision reshaping: how it
+  was verified".
+- Needs an Archiverr build with Dolby Vision support (AW-279) to use the
+  filter; older builds behave as with v2.6.0. An Archiverr build with AW-279
+  on an older sidecar still converts profile 5, without the reshaping
+  (natural colours, but flatter and drifting between scenes). Archiverr's
+  `docker-compose.yml`, `docker-compose.customer.yml` and
+  `docker-compose.truenas.yml` need the new tag once it is released.
+
 ## v2.6.0 — 2026-11-17
 
 Minor release: Intel and AMD GPUs from the published image. Same FFmpeg

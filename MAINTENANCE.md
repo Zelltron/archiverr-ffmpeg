@@ -22,6 +22,7 @@ is the runbook.
 | `patches/0001-v4l2-request-dma-heap-opt-in.patch` | Makes the V4L2 request-API decoder's dma-heap frame pools opt-in behind `ARCHIVERR_V4L2_DMAHEAP=1`. On stock Raspberry Pi kernels the CMA heap (320 MB measured on this Pi 5) is too small for 4K HEVC pools and dma-heap allocation fails with ENOMEM; the driver's own MMap buffers work at full speed instead. Default (unset/`0`) uses MMap; set the env var to opt back into dma-heap. | Applied by the Dockerfile with `patch -p1` before `configure`. Every fork pin bump (see "Bumping the fork pin" below) must re-check this patch still applies cleanly against `libavcodec/v4l2_req_dmabufs.c` — the hunk targets `ctl_cma_new2()`; if that function moves or changes shape upstream, regenerate the patch rather than force-applying with fuzz. |
 | `patches/0002-fftools-skip-hw-preroll-before-seek.patch` | With `-ss` before `-i` (accurate seek), ffmpeg decodes from the previous keyframe and drops the pre-roll frames in a `trim` filter, after the hwaccel has already copied each frame to system memory. On a Pi 5 that copy dominates 4K HEVC decode (about 50 fps with it, 130 fps without), so a seek that lands 8 s after a keyframe spent 4.5 s on frames nobody sees. The patch gives the decoder the same start the trim filter gets and drops hardware frames before the download; software decode and the trim filter are untouched, so output is identical. | Applied by the Dockerfile with `patch -p1` before `configure`. Touches only `fftools/` (`ffmpeg.h` `DecoderOpts`, `ffmpeg_dec.c` `video_frame_process()` / `dec_open()` / `dec_standalone_open()`, `ffmpeg_demux.c` `ist_use()`); on a fork bump re-check that `ist_filter_add()` still computes `trim_start_us` the same way (the patch mirrors it) and that `video_frame_process()` still calls `hwaccel_retrieve_data()` first. Regenerate rather than fuzz. |
 | `patches/0003-cuda-update-func-header.patch`, `patches/0004-cuda-scale-pixfmt-converter.patch`, `patches/0005-cuda-tonemap-filter.patch` | NVIDIA transcodes of 4K HDR sources decoded on the GPU, then copied every frame to system memory to scale and tone map on the CPU (about 12 cores per stream on the owner PC, 6 streams against Plex's 12; AW-246). Upstream `scale_cuda` drops 10-bit to 8-bit without dithering (banding) and upstream has no CUDA tone mapper. These three patches are jellyfin-ffmpeg's `0002-update-cuda-func-header`, `0003-add-enhanced-cuda-pixfmt-converter-impl` and `0004-add-cuda-tonemap-impl` from its `v7.1.3-5` tag (LGPL-2.1-or-later), regenerated against the fork tree with the code unchanged: math intrinsics for the CUDA kernels, dithering when `scale_cuda` reduces bit depth, and the `tonemap_cuda` filter (BT.2390, PQ and HLG to BT.709). Built with `--enable-cuda-llvm` (clang in the build stage compiles the `.cu` kernels to PTX; nothing from clang is staged). Archiverr proves the chain at boot and keeps its CPU chain when the proof fails. | Applied by the Dockerfile with `patch -p1` before `configure`. They touch `configure` (filter deps, clang flags), `ffbuild/common.mak`, `libavfilter/Makefile`, `allfilters.c`, `colorspace.[ch]`, `vf_scale_cuda.*`, `compat/cuda/cuda_runtime.h` and add `libavfilter/cuda/*` and `vf_tonemap_cuda.c`. On a fork bump within 7.1, regenerate against the new tree (apply jellyfin-ffmpeg's patch with `patch -p1 -F0`, then `git diff`), never fuzz. On a new FFmpeg major take the three patches from the jellyfin-ffmpeg tag of that major. The build-stage assertions fail if `scale_cuda`, `tonemap_cuda`, `force_divisible_by` or `bt2390` are missing. Re-run the check under "NVIDIA filters: what real hardware showed". |
+| `patches/0006-dovi-reshape-filter.patch` | Dolby Vision profile 5 has no HDR10 base layer: its planes are IPT-PQ-c2, stored reshaped, and each RPU carries the per-scene curves (polynomial, or MMR for chroma) that undo the reshaping. FFmpeg decodes the RPU into frame side data, but its only consumer is the `libplacebo` filter, which needs Vulkan, a GPU driver in the image and a GPU the Pi does not have for this. Without the curves the picture has the wrong brightness and saturation, differently in every scene (AW-279). The patch adds `dovi_reshape`, a small CPU filter (yuv444p10le in and out) that applies the curves and nothing else; Archiverr then converts the planes to SDR with its own LUT. Our own code, LGPL-2.1-or-later, arithmetic after libplacebo's `pl_shader_dovi_reshape`. | Applied by the Dockerfile with `patch -p1` before `configure`. Adds `libavfilter/vf_dovi_reshape.c` and one line each in `libavfilter/Makefile` and `allfilters.c`; on a fork bump only those two hunks can move (regenerate, never fuzz). It reads `AVDOVIMetadata` through `av_dovi_get_header()` / `av_dovi_get_mapping()` and `AVDOVIReshapingCurve` (`libavutil/dovi_meta.h`): on a new FFmpeg major check those still exist with the same fields, and drop the patch if upstream gains a CPU reshaping filter of its own. The build-stage assertion fails if the filter is missing; the verify stage runs Archiverr's chain on a clip without an RPU. Re-run the check under "Dolby Vision reshaping: how it was verified" after any change to the file. |
 
 ## Hardware matrix
 
@@ -75,6 +76,37 @@ libva and libvpl dlopen these by name, so Archiverr must point
 `<tree>/lib` (it does, from `constants.ts`, when the directory exists). CI
 builds both variants on every push. Bumping the fork or Debian base: re-check
 the `ldd` assertions on `lib/dri/*.so` still resolve inside the tree.
+
+## Dolby Vision reshaping: how it was verified (v2.7.0)
+
+No clip with an RPU is in this repo (Dolby's test streams are not ours to
+redistribute), so CI only proves the filter is built and passes frames
+without metadata through. The arithmetic was checked by hand on 2026-11-23:
+
+- Source: Dolby's public profile 5 test stream
+  (`DolbyVision_Atmos/profile5_HLS`, 1080p rendition; polynomial luma in 7
+  pieces, first-order chroma, curves that change per scene).
+- Reference: `libplacebo=apply_dolbyvision=true` (FFmpeg 6.1, software
+  Vulkan) rendering the same frames to BT.2020 PQ.
+- Result: FFmpeg 7.1.5 with this patch, `dovi_reshape` followed by the
+  IPT-PQ-c2 to BT.2020 conversion, differs from the reference by 0.002 of
+  the PQ signal on average (95th percentile 0.007). Without the filter the
+  mean difference is 0.09 to 0.14.
+- Cost: about one fifth on top of the HDR10 tone-map chain at 720p (x86,
+  4 threads). Not measured on a Pi.
+
+Not verified: MMR chroma mapping (the sample uses polynomials only; the
+code follows libplacebo's shader term for term), 4K sources, AV1 (profile
+10), and whether every hardware decode path attaches the RPU to its frames
+(`-hwaccel drm`, VA-API, NVDEC through the native decoders should;
+`hevc_cuvid` and `hevc_v4l2m2m` do not parse it, and the filter then passes
+the frame through unchanged with a warning).
+
+To repeat: decode a profile 5 file with
+`-vf scale=in_range=full:out_range=full,format=yuv444p10le,dovi_reshape`
+and compare against libplacebo, or simply watch it through Archiverr's
+H.264 transcode: skin tones and greys must be neutral and scene cuts must
+not change the overall brightness.
 
 ## NVIDIA filters: what real hardware showed (v2.5.0, RTX 3080)
 
