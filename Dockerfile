@@ -36,6 +36,10 @@
 #                              are compiled to PTX by clang at build time
 #                              (--enable-cuda-llvm); no NVIDIA SDK, no
 #                              nonfree libnpp.
+#   - dovi_reshape             CPU filter that applies the reshaping
+#                              curves of a Dolby Vision RPU (patch 0006),
+#                              so a profile 5 picture can be converted
+#                              to SDR without libplacebo and Vulkan
 #   - libass + freetype/fontconfig/fribidi/harfbuzz  subtitle burn-in
 #   - libdav1d                 fast AV1 software decode
 #   - openssl                  TLS for IPTV https inputs
@@ -304,6 +308,13 @@ RUN set -e; \
     /tree/ffmpeg -hide_banner -h filter=scale_cuda | grep -q force_divisible_by; \
     /tree/ffmpeg -hide_banner -h filter=tonemap_cuda | grep -q bt2390; \
     /tree/ffmpeg -hide_banner -filters | grep -q unsand; \
+    # Dolby Vision profile 5 to SDR on the CPU (Archiverr sdrOutput.ts):
+    # dovi_reshape (patch 0006) applies the RPU, then the planes go to lut3d
+    # unconverted through extractplanes and mergeplanes.
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' dovi_reshape '; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' extractplanes '; \
+    /tree/ffmpeg -hide_banner -filters | grep -qE ' lut3d '; \
+    /tree/ffmpeg -hide_banner -h filter=mergeplanes | grep -q map2s; \
     # Intel / AMD GPU chain (Archiverr vaapiFilters.ts): VA-API decode,
     # scale_vaapi, tonemap_vaapi, then h264_vaapi, or h264_qsv through hwmap;
     # hwupload feeds h264_vaapi from a CPU filter chain. With the options
@@ -411,6 +422,11 @@ RUN set -e; \
     grep -q '^pix_fmt=yuv420p10le' /tmp/hdr10.txt; \
     grep -q '^color_transfer=smpte2084' /tmp/hdr10.txt; \
     grep -q 'Mastering display metadata' /tmp/hdr10.txt; \
+    # The filter chain Archiverr runs for Dolby Vision profile 5, on a clip
+    # without an RPU: dovi_reshape must pass such frames through.
+    /tree/ffmpeg -hide_banner -loglevel error -f hevc -i /tmp/probe-hdr10.hevc \
+        -vf 'scale=in_range=full:out_range=full,format=yuv444p10le,dovi_reshape,extractplanes=y+u+v[i][ct][cp];[i][ct][cp]mergeplanes=format=gbrp10le:map1s=1:map2s=2' \
+        -f null -; \
     # Decode-only HEVC (AW-172): no libx265 and no hardware HEVC encoder.
     /tree/ffmpeg -hide_banner -encoders | grep -iE 'hevc|h\.?265' && exit 1 || true; \
     # VERSION format (separate commands: set -e ignores non-final && failures)

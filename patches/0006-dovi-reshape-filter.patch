@@ -1,0 +1,313 @@
+Archiverr: add the dovi_reshape video filter (libavfilter/vf_dovi_reshape.c).
+It applies the reshaping curves of each frame's Dolby Vision RPU on the CPU
+(polynomial and MMR mapping, following libplacebo's pl_shader_dovi_reshape),
+which a profile 5 picture needs before its planes are IPT-PQ-c2. FFmpeg's
+only other consumer of that metadata is the libplacebo filter, which needs
+Vulkan. Written for Archiverr against the pinned Raspberry Pi fork tree
+(FFMPEG_REF in the Dockerfile); applies with patch -p1 and no offsets.
+Licence: LGPL-2.1-or-later (the header of the file it adds), like the FFmpeg
+files it changes.
+Why Archiverr carries it: see MAINTENANCE.md, "Patches we carry".
+
+diff --git a/libavfilter/Makefile b/libavfilter/Makefile
+--- a/libavfilter/Makefile
++++ b/libavfilter/Makefile
+@@ -289,6 +289,7 @@ OBJS-$(CONFIG_DNN_CLASSIFY_FILTER)           += vf_dnn_classify.o
+ OBJS-$(CONFIG_DNN_DETECT_FILTER)             += vf_dnn_detect.o
+ OBJS-$(CONFIG_DNN_PROCESSING_FILTER)         += vf_dnn_processing.o
+ OBJS-$(CONFIG_DOUBLEWEAVE_FILTER)            += vf_weave.o
++OBJS-$(CONFIG_DOVI_RESHAPE_FILTER)           += vf_dovi_reshape.o
+ OBJS-$(CONFIG_DRAWBOX_FILTER)                += vf_drawbox.o
+ OBJS-$(CONFIG_DRAWGRAPH_FILTER)              += f_drawgraph.o
+ OBJS-$(CONFIG_DRAWGRID_FILTER)               += vf_drawbox.o
+diff --git a/libavfilter/allfilters.c b/libavfilter/allfilters.c
+--- a/libavfilter/allfilters.c
++++ b/libavfilter/allfilters.c
+@@ -265,6 +265,7 @@ extern const AVFilter ff_vf_dnn_classify;
+ extern const AVFilter ff_vf_dnn_detect;
+ extern const AVFilter ff_vf_dnn_processing;
+ extern const AVFilter ff_vf_doubleweave;
++extern const AVFilter ff_vf_dovi_reshape;
+ extern const AVFilter ff_vf_drawbox;
+ extern const AVFilter ff_vf_drawgraph;
+ extern const AVFilter ff_vf_drawgrid;
+diff --git a/libavfilter/vf_dovi_reshape.c b/libavfilter/vf_dovi_reshape.c
+--- /dev/null
++++ b/libavfilter/vf_dovi_reshape.c
+@@ -0,0 +1,276 @@
++/*
++ * Copyright (c) 2026 Zellio LLC
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with FFmpeg; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++/**
++ * @file
++ * Apply the reshaping curves of a Dolby Vision RPU on the CPU.
++ *
++ * A Dolby Vision base layer is stored "reshaped": each RPU carries, per
++ * component, a piecewise mapping (polynomial, or multivariate multiple
++ * regression for chroma) back to the signal the colour metadata describes.
++ * For profile 5 that signal is IPT-PQ-c2, and without the mapping the
++ * picture has the wrong brightness and saturation, differently in every
++ * scene. This filter applies the mapping of each frame's RPU (the
++ * AV_FRAME_DATA_DOVI_METADATA side data the HEVC and AV1 decoders export)
++ * and nothing else: no colour space conversion and no tone mapping. The
++ * arithmetic follows libplacebo's pl_shader_dovi_reshape.
++ *
++ * Input and output are yuv444p10le; the sample values must be the decoder's
++ * (no range conversion before this filter). A frame without Dolby Vision
++ * metadata, or with a base layer that is not 10-bit, passes through
++ * unchanged.
++ */
++
++#include <math.h>
++#include <string.h>
++
++#include "libavutil/common.h"
++#include "libavutil/dovi_meta.h"
++#include "libavutil/frame.h"
++#include "libavutil/pixfmt.h"
++
++#include "avfilter.h"
++#include "filters.h"
++#include "video.h"
++
++#define BL_BITS    10
++#define BL_VALUES  (1 << BL_BITS)
++#define BL_MAX     (BL_VALUES - 1)
++
++typedef struct ReshapeCurve {
++    int      active;                       ///< 0: the component is copied
++    int      any_mmr;
++    float    lo, hi;                       ///< first and last pivot, normalised
++    uint8_t  piece_of[BL_VALUES];          ///< piece index of each input value
++    uint8_t  is_mmr[AV_DOVI_MAX_PIECES];
++    uint16_t lut[BL_VALUES];               ///< polynomial pieces, per input value
++    int      mmr_order[AV_DOVI_MAX_PIECES];
++    float    mmr_constant[AV_DOVI_MAX_PIECES];
++    float    mmr_coef[AV_DOVI_MAX_PIECES][3][7];
++} ReshapeCurve;
++
++typedef struct DoviReshapeContext {
++    ReshapeCurve curve[3];
++    AVDOVIReshapingCurve cached[3];
++    int cached_denom;
++    int have_cache;
++    int warned_missing;
++    int warned_depth;
++} DoviReshapeContext;
++
++typedef struct ThreadData {
++    const AVFrame *in;
++    AVFrame *out;
++} ThreadData;
++
++static uint16_t to_sample(float s, float lo, float hi)
++{
++    return (uint16_t)lrintf(av_clipf(s, lo, hi) * BL_MAX);
++}
++
++static void build_curve(ReshapeCurve *dst, const AVDOVIReshapingCurve *src, int log2_denom)
++{
++    const double scale = 1.0 / (double)(1LL << log2_denom);
++    const int pieces = src->num_pivots - 1;
++
++    memset(dst, 0, sizeof(*dst));
++    if (src->num_pivots < 2 || src->num_pivots > AV_DOVI_MAX_PIECES + 1)
++        return;
++
++    dst->active = 1;
++    dst->lo = src->pivots[0] / (float)BL_MAX;
++    dst->hi = src->pivots[pieces] / (float)BL_MAX;
++
++    for (int i = 0; i < pieces; i++) {
++        if (src->mapping_idc[i] != AV_DOVI_MAPPING_MMR)
++            continue;
++        dst->is_mmr[i] = 1;
++        dst->any_mmr = 1;
++        dst->mmr_order[i] = av_clip(src->mmr_order[i], 1, 3);
++        dst->mmr_constant[i] = (float)(src->mmr_constant[i] * scale);
++        for (int k = 0; k < dst->mmr_order[i]; k++)
++            for (int j = 0; j < 7; j++)
++                dst->mmr_coef[i][k][j] = (float)(src->mmr_coef[i][k][j] * scale);
++    }
++
++    for (int v = 0; v < BL_VALUES; v++) {
++        const double x = v / (double)BL_MAX;
++        int piece = 0;
++        double s;
++
++        /* piece i covers pivots[i] <= v < pivots[i + 1]; the ends extend outwards */
++        while (piece < pieces - 1 && v >= src->pivots[piece + 1])
++            piece++;
++        dst->piece_of[v] = piece;
++        if (dst->is_mmr[piece])
++            continue;
++
++        s = src->poly_coef[piece][0] * scale;
++        if (src->poly_order[piece] >= 1)
++            s += src->poly_coef[piece][1] * scale * x;
++        if (src->poly_order[piece] >= 2)
++            s += src->poly_coef[piece][2] * scale * x * x;
++        dst->lut[v] = to_sample((float)s, dst->lo, dst->hi);
++    }
++}
++
++static av_always_inline float mmr(const ReshapeCurve *c, int piece, float y, float u, float v)
++{
++    const float sig[3] = { y, u, v };
++    const float cross[4] = { y * u, y * v, u * v, y * u * v };
++    float p3[3] = { y, u, v };
++    float p4[4] = { cross[0], cross[1], cross[2], cross[3] };
++    float s = c->mmr_constant[piece];
++
++    for (int k = 0; k < c->mmr_order[piece]; k++) {
++        const float *coef = c->mmr_coef[piece][k];
++        s += coef[0] * p3[0] + coef[1] * p3[1] + coef[2] * p3[2]
++           + coef[3] * p4[0] + coef[4] * p4[1] + coef[5] * p4[2] + coef[6] * p4[3];
++        for (int i = 0; i < 3; i++)
++            p3[i] *= sig[i];
++        for (int i = 0; i < 4; i++)
++            p4[i] *= cross[i];
++    }
++    return s;
++}
++
++static int reshape_slice(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs)
++{
++    const DoviReshapeContext *s = ctx->priv;
++    const ThreadData *td = arg;
++    const AVFrame *in = td->in;
++    AVFrame *out = td->out;
++    const int w = in->width;
++    const int start = (in->height * jobnr) / nb_jobs;
++    const int end = (in->height * (jobnr + 1)) / nb_jobs;
++    const float norm = 1.0f / BL_MAX;
++
++    for (int y = start; y < end; y++) {
++        const uint16_t *src[3];
++        for (int c = 0; c < 3; c++)
++            src[c] = (const uint16_t *)(in->data[c] + (ptrdiff_t)y * in->linesize[c]);
++
++        for (int c = 0; c < 3; c++) {
++            const ReshapeCurve *curve = &s->curve[c];
++            uint16_t *dst = (uint16_t *)(out->data[c] + (ptrdiff_t)y * out->linesize[c]);
++
++            if (!curve->active) {
++                memcpy(dst, src[c], w * sizeof(*dst));
++            } else if (!curve->any_mmr) {
++                for (int x = 0; x < w; x++)
++                    dst[x] = curve->lut[FFMIN(src[c][x], BL_MAX)];
++            } else {
++                for (int x = 0; x < w; x++) {
++                    const int v = FFMIN(src[c][x], BL_MAX);
++                    const int piece = curve->piece_of[v];
++                    if (!curve->is_mmr[piece]) {
++                        dst[x] = curve->lut[v];
++                    } else {
++                        const float val = mmr(curve, piece,
++                                              FFMIN(src[0][x], BL_MAX) * norm,
++                                              FFMIN(src[1][x], BL_MAX) * norm,
++                                              FFMIN(src[2][x], BL_MAX) * norm);
++                        dst[x] = to_sample(val, curve->lo, curve->hi);
++                    }
++                }
++            }
++        }
++    }
++    return 0;
++}
++
++static int filter_frame(AVFilterLink *inlink, AVFrame *in)
++{
++    AVFilterContext *ctx = inlink->dst;
++    AVFilterLink *outlink = ctx->outputs[0];
++    DoviReshapeContext *s = ctx->priv;
++    const AVFrameSideData *sd = av_frame_get_side_data(in, AV_FRAME_DATA_DOVI_METADATA);
++    const AVDOVIMetadata *metadata;
++    const AVDOVIRpuDataHeader *header;
++    const AVDOVIDataMapping *mapping;
++    ThreadData td;
++    AVFrame *out;
++
++    if (!sd) {
++        if (!s->warned_missing) {
++            av_log(ctx, AV_LOG_WARNING, "Frame without Dolby Vision metadata: passed through unchanged\n");
++            s->warned_missing = 1;
++        }
++        return ff_filter_frame(outlink, in);
++    }
++
++    metadata = (const AVDOVIMetadata *)sd->data;
++    header = av_dovi_get_header(metadata);
++    mapping = av_dovi_get_mapping(metadata);
++
++    if (header->bl_bit_depth != BL_BITS) {
++        if (!s->warned_depth) {
++            av_log(ctx, AV_LOG_WARNING, "Dolby Vision base layer is %d-bit, only 10-bit is reshaped: passed through unchanged\n",
++                   header->bl_bit_depth);
++            s->warned_depth = 1;
++        }
++        return ff_filter_frame(outlink, in);
++    }
++
++    if (!s->have_cache || s->cached_denom != header->coef_log2_denom ||
++        memcmp(s->cached, mapping->curves, sizeof(s->cached))) {
++        for (int c = 0; c < 3; c++)
++            build_curve(&s->curve[c], &mapping->curves[c], header->coef_log2_denom);
++        memcpy(s->cached, mapping->curves, sizeof(s->cached));
++        s->cached_denom = header->coef_log2_denom;
++        s->have_cache = 1;
++    }
++
++    out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
++    if (!out) {
++        av_frame_free(&in);
++        return AVERROR(ENOMEM);
++    }
++    av_frame_copy_props(out, in);
++    /* The mapping is applied: nothing downstream may apply it again. */
++    av_frame_remove_side_data(out, AV_FRAME_DATA_DOVI_METADATA);
++    av_frame_remove_side_data(out, AV_FRAME_DATA_DOVI_RPU_BUFFER);
++
++    td.in = in;
++    td.out = out;
++    ff_filter_execute(ctx, reshape_slice, &td, NULL,
++                      FFMIN(in->height, ff_filter_get_nb_threads(ctx)));
++
++    av_frame_free(&in);
++    return ff_filter_frame(outlink, out);
++}
++
++static const AVFilterPad dovi_reshape_inputs[] = {
++    {
++        .name         = "default",
++        .type         = AVMEDIA_TYPE_VIDEO,
++        .filter_frame = filter_frame,
++    },
++};
++
++const AVFilter ff_vf_dovi_reshape = {
++    .name          = "dovi_reshape",
++    .description   = NULL_IF_CONFIG_SMALL("Apply the reshaping curves of Dolby Vision RPU metadata."),
++    .priv_size     = sizeof(DoviReshapeContext),
++    FILTER_INPUTS(dovi_reshape_inputs),
++    FILTER_OUTPUTS(ff_video_default_filterpad),
++    FILTER_SINGLE_PIXFMT(AV_PIX_FMT_YUV444P10LE),
++    .flags         = AVFILTER_FLAG_SLICE_THREADS,
++};
