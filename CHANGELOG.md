@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## v2.7.0 — 2026-11-24
 
-Planned as v2.7.0 (minor): one new patch, same FFmpeg source, configure
+Minor: one new patch, same FFmpeg source, configure
 flags and decode paths, so decode speed is unchanged (no new Pi
 real-hardware figure needed for decode; the new filter's cost on a Pi is not
 measured yet).
